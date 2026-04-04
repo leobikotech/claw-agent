@@ -205,13 +205,17 @@ class SpawnWorkerTool(Tool):
 # ────────────────────────────────────────────────────────────────
 
 class SendMessageTool(Tool):
-    """Continue an existing worker with a follow-up message / 向已有 Worker 发送后续指令
+    """Restart a finished worker with a follow-up instruction / 向已完成的 Worker 发送后续指令
     Maps to: src/tools/SendMessageTool
+
+    Note: Each invocation spawns a fresh sub-agent engine. The worker does NOT
+    retain conversation context from its previous run — include all necessary
+    information in the follow-up prompt.
 
     Key use cases from the original:
     - Research worker found the bug → continue it with a synthesized fix spec
     - Worker reported test failures → send correction instructions
-    - Redirect a worker mid-flight after user clarifies requirements
+    - Redirect a worker after user clarifies requirements
     """
     name = "send_message"
     description = (
@@ -250,7 +254,7 @@ class SendMessageTool(Tool):
 
         # Check if worker exists
         if worker_id in _ACTIVE_WORKERS and not _ACTIVE_WORKERS[worker_id].task.done():
-            return f"Error: Worker '{worker_id}' is still running. Wait for it to finish first."
+            return f"Error: Worker '{worker_id}' is still running. Wait for it to finish, or use task_stop to cancel it first."
 
         start_time = time.monotonic()
 

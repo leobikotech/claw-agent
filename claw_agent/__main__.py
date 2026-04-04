@@ -60,6 +60,7 @@ async def repl():
     tools = get_default_tools()
 
     # Initialize memory if enabled
+    memory = None
     if config.feature("MEMORY"):
         memory = Memory(config.effective_memory_dir)
         memory_prompt = memory.build_prompt()
@@ -73,7 +74,7 @@ async def repl():
         await mcp_manager.connect_all(servers)
 
     # Create engine
-    engine = Engine(config=config, tools=tools)
+    engine = Engine(config=config, tools=tools, memory=memory)
 
     # Discover MCP tools
     if mcp_manager:

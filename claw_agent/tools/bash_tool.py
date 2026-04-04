@@ -308,7 +308,3 @@ class BashTool(Tool):
             return f"Command timed out after {timeout}s"
         except Exception as e:
             return f"Error executing command: {e}"
-"""
-    File tools — 文件操作工具集
-    Maps to: src/tools/FileReadTool, FileWriteTool, FileEditTool
-"""

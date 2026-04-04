@@ -17,6 +17,7 @@ Features:
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import random
 import re
 import time
@@ -380,29 +381,7 @@ class Engine:
         # --- Initialize Memory Attachments ---
         attachments_text = ""
         if self.memory and prompt.strip():
-            try:
-                # Find relevant memories using LLM side-query
-                # In full implementation, we track already_surfaced across turns
-                relevant = await self.memory.find_relevant(
-                    query=prompt,
-                    provider=self._provider,
-                    model=self.config.effective_model,
-                )
-                if relevant:
-                    import os
-                    attachment_docs = []
-                    for m in relevant:
-                        path = m.get("path")
-                        if not path:
-                            continue
-                        content = self.memory.load_memory_content(path)
-                        basename = os.path.basename(path)
-                        attachment_docs.append(f'<document path="{basename}">\n{content}\n</document>')
-                    
-                    if attachment_docs:
-                        attachments_text = "\n\n<system-reminder>\nThe following relevant memories were automatically retrieved from your persistent memory:\n" + "\n".join(attachment_docs) + "\n</system-reminder>\n"
-            except Exception as e:
-                logger.warning(f"Failed to fetch relevant memories: {e}")
+            attachments_text = await self._build_memory_attachments(prompt)
 
         # Add user message
         if prompt.strip():
@@ -566,3 +545,45 @@ class Engine:
             self.event_queue.put_nowait(event_msg)
         else:
             self.messages.append(UserMessage(content=event_msg))
+
+    # ────────────────────────────────────────────────────────────
+    # Memory helpers
+    # ────────────────────────────────────────────────────────────
+
+    async def _build_memory_attachments(self, query: str) -> str:
+        """Find relevant memories and format as XML attachment string.
+        Maps to: findRelevantMemories + attachment injection in QueryEngine.ts
+        """
+        try:
+            relevant = await self.memory.find_relevant(
+                query=query,
+                provider=self._provider,
+                model=self.config.effective_model,
+            )
+            if not relevant:
+                return ""
+
+            attachment_docs = []
+            for m in relevant:
+                path = m.get("path")
+                if not path:
+                    continue
+                content = self.memory.load_memory_content(path)
+                basename = os.path.basename(path)
+                attachment_docs.append(
+                    f'<document path="{basename}">\n{content}\n</document>'
+                )
+
+            if not attachment_docs:
+                return ""
+
+            return (
+                "\n\n<system-reminder>\n"
+                "The following relevant memories were automatically retrieved "
+                "from your persistent memory:\n"
+                + "\n".join(attachment_docs)
+                + "\n</system-reminder>\n"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to fetch relevant memories: {e}")
+            return ""

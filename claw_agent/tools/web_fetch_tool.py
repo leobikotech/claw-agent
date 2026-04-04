@@ -36,8 +36,10 @@ class WebFetchTool(Tool):
         headers = arguments.get("headers", {})
 
         try:
+            default_headers = {"User-Agent": "CrawAgent/0.2 (httpx)"}
+            default_headers.update(headers)
             async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-                resp = await client.request(method, url, headers=headers)
+                resp = await client.request(method, url, headers=default_headers)
                 # Truncate very large responses
                 text = resp.text[:50_000]
                 if len(resp.text) > 50_000:

@@ -391,7 +391,13 @@ def _serialize_conversation_for_compact(messages: list[dict[str, Any]]) -> str:
         tool_calls = msg.get("tool_calls", [])
         tc_summary = ""
         if tool_calls:
-            tc_names = [tc.get("function", tc).get("name", "?") for tc in tool_calls if isinstance(tc, dict)]
+            tc_names = []
+            for tc in tool_calls:
+                if not isinstance(tc, dict):
+                    continue
+                fn = tc.get("function", {})
+                name = fn.get("name", "?") if isinstance(fn, dict) else "?"
+                tc_names.append(name)
             tc_summary = f"\n[Tool calls: {', '.join(tc_names)}]"
 
         parts.append(f"--- {role} ---\n{content}{tc_summary}")

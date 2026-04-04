@@ -285,8 +285,20 @@ class GeminiProvider(LLMProvider):
                         parts.append(types.Part.from_function_call(name=fn["name"], args=args))
                 contents.append(types.Content(role="model", parts=parts))
             elif m["role"] == "tool":
+                # Look up the function name from the tool_call_id by scanning
+                # preceding assistant messages for matching tool calls
+                fn_name = "tool"  # fallback
+                tool_call_id = m.get("tool_call_id", "")
+                for prev in reversed(messages[:messages.index(m)]):
+                    if prev.get("role") == "assistant" and prev.get("tool_calls"):
+                        for tc in prev["tool_calls"]:
+                            if tc.get("id") == tool_call_id:
+                                fn = tc.get("function", tc)
+                                fn_name = fn.get("name", "tool") if isinstance(fn, dict) else "tool"
+                                break
+                        break
                 parts = [types.Part.from_function_response(
-                    name="tool",  # Gemini needs function name
+                    name=fn_name,
                     response={"result": m["content"]},
                 )]
                 contents.append(types.Content(role="user", parts=parts))
