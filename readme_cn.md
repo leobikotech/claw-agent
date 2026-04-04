@@ -65,6 +65,18 @@
 - **HTML 注释剥离**：`<!-- comments -->` 会从输出中移除
 - **优先级排序**：距离 CWD 越近的文件优先级越高（后加载的覆盖先加载的）
 
+#### 7. WebSearch — 供应商无关的网络搜索
+现代智能体需要实时信息。原版 Claude Code 依赖 Anthropic 原生的 `web_search_20250305` beta——仅限 Claude 使用。Claw Agent 将其重新架构为**供应商无关**的工具，配备 4 个可插拔搜索后端：
+
+| 后端 | 环境变量 | 亮点 |
+|------|---------|------|
+| **Tavily**（推荐） | `TAVILY_API_KEY` | AI 优化，返回提取的页面内容，每月 1000 次免费 |
+| **Brave Search** | `BRAVE_API_KEY` | 隐私优先，每月 2000 次免费查询 |
+| **SerpAPI** | `SERPAPI_API_KEY` | 通过 API 获取 Google 搜索结果 |
+| **DuckDuckGo** | *（无需）* | 零配置后备方案，无需 API Key |
+
+后端从环境变量自动检测。结果包含结构化内容、markdown 超链接来源，并提示 LLM 引用来源。域名过滤（`allowed_domains` / `blocked_domains`）在所有后端通用。
+
 ---
 
 ## ⚡ 示例
@@ -101,6 +113,20 @@ pip install -e ".[all]"
 ```bash
 export MINIMAX_API_KEY="your_minimax_key"
 export DEEPSEEK_API_KEY="your_deepseek_key"
+```
+
+**（可选）启用网络搜索** — 设置以下任一环境变量即可解锁实时搜索：
+```bash
+# 推荐：Tavily — AI 优化，返回完整页面内容
+export TAVILY_API_KEY="tvly-xxxxxxxxxxxxx"   # 在 https://tavily.com 获取
+
+# 备选：Brave Search — 隐私优先，免费额度充足
+# export BRAVE_API_KEY="BSAxxxxxxxxxxxxx"    # https://brave.com/search/api
+
+# 备选：SerpAPI — Google 搜索结果
+# export SERPAPI_API_KEY="xxxxxxxxxxxxx"      # https://serpapi.com
+
+# 如果未设置任何 Key，自动使用 DuckDuckGo（免费，无需注册）
 ```
 
 ### 第二步：开箱即用的 CLI
@@ -145,7 +171,7 @@ asyncio.run(main())
 
 **连接外部 MCP 协议**：
 ```python
-from claw_agent.core.mcp_client import MCPManager, MCPServerConfig
+from claw_agent.integrations import MCPManager, MCPServerConfig
 
 mcp = MCPManager()
 # 挂载数百种官方 MCP 集成（如 GitHub）
@@ -169,6 +195,23 @@ engine = Engine(config=config, tools=coord_tools, event_queue=event_queue)
 
 # 任务执行时，AI 可以自主在后台 spawn_worker，
 # 而主程序保持简洁地拉取收到的报告！
+```
+
+---
+
+## 📦 项目结构
+
+```
+claw_agent/
+├── core/              # 最小核心：引擎循环、钩子、消息、工具基类、权限
+├── providers/         # LLM 供应商：OpenAI、Anthropic、Gemini（每个供应商一个文件）
+├── instructions/      # CLAW.md 发现 + 系统提示词构建器
+├── memory/            # 持久化记忆、Dream 巩固、自动压缩
+├── tools/             # 内置工具：ask_user、bash、文件、glob、grep、web_fetch、web_search
+├── agents/            # 多代理协调器 + 子代理
+├── integrations/      # 外部集成（MCP 客户端）
+├── config.py          # 配置数据类
+└── __main__.py        # CLI REPL 入口
 ```
 
 ---

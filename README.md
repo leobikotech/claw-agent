@@ -65,6 +65,18 @@ Inspired by Claude Code's `CLAUDE.md`, Claw Agent supports **project-level instr
 - **HTML comment stripping**: `<!-- comments -->` are removed from output
 - **Priority ordering**: Later-loaded files (closer to CWD) have higher priority
 
+#### 7. WebSearch — Provider-Agnostic Web Search
+Modern agents need real-time information. The original Claude Code relies on Anthropic's native `web_search_20250305` beta—which only works with Claude. Claw Agent rearchitects this as a **provider-agnostic** tool with 4 pluggable search backends:
+
+| Backend | Env Var | Highlights |
+|---------|---------|------------|
+| **Tavily** (recommended) | `TAVILY_API_KEY` | AI-optimized, returns extracted page content, 1000 free/month |
+| **Brave Search** | `BRAVE_API_KEY` | Privacy-focused, 2000 free queries/month |
+| **SerpAPI** | `SERPAPI_API_KEY` | Google Search results via API |
+| **DuckDuckGo** | *(none needed)* | Zero-config fallback, no API key required |
+
+The backend is auto-detected from environment variables. Results include structured content, markdown-linked sources, and the LLM is prompted to cite them. Domain filtering (`allowed_domains` / `blocked_domains`) works across all backends.
+
 ---
 
 ## ⚡ Examples
@@ -101,6 +113,20 @@ Set your preferred LLM API keys via environment variables:
 ```bash
 export MINIMAX_API_KEY="your_minimax_key"
 export DEEPSEEK_API_KEY="your_deepseek_key"
+```
+
+**(Optional) Enable Web Search** — set ONE of the following to unlock real-time search:
+```bash
+# Recommended: Tavily — AI-optimized, returns full page content
+export TAVILY_API_KEY="tvly-xxxxxxxxxxxxx"   # Get yours at https://tavily.com
+
+# Alternative: Brave Search — privacy-focused, generous free tier
+# export BRAVE_API_KEY="BSAxxxxxxxxxxxxx"    # https://brave.com/search/api
+
+# Alternative: SerpAPI — Google Search results
+# export SERPAPI_API_KEY="xxxxxxxxxxxxx"      # https://serpapi.com
+
+# If no key is set, DuckDuckGo is used automatically (free, no signup)
 ```
 
 ### Step 2: Out-Of-The-Box CLI
@@ -145,7 +171,7 @@ asyncio.run(main())
 
 **Connect external MCP Protocol**:
 ```python
-from claw_agent.core.mcp_client import MCPManager, MCPServerConfig
+from claw_agent.integrations import MCPManager, MCPServerConfig
 
 mcp = MCPManager()
 # Mount hundreds of official MCP integrations like GitHub
@@ -169,6 +195,23 @@ engine = Engine(config=config, tools=coord_tools, event_queue=event_queue)
 
 # When task executing, the AI can independently spawn_worker in the background, 
 # while the main program stays clean pulling incoming reports!
+```
+
+---
+
+## 📦 Project Structure
+
+```
+claw_agent/
+├── core/              # Minimal core: engine loop, hooks, messages, tools, permissions
+├── providers/         # LLM providers: OpenAI, Anthropic, Gemini (one file per provider)
+├── instructions/      # CLAW.md discovery + system prompt builder
+├── memory/            # Persistent memory, dream consolidation, auto-compact
+├── tools/             # Built-in tools: ask_user, bash, file, glob, grep, web_fetch, web_search
+├── agents/            # Multi-agent coordinator + sub-agent
+├── integrations/      # External integrations (MCP client)
+├── config.py          # Configuration dataclass
+└── __main__.py        # CLI REPL entry point
 ```
 
 ---

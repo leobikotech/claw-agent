@@ -373,3 +373,96 @@ class DreamEngine:
             self.lock.rollback(prior_mtime)
             logger.error(f"Dream failed: {e}")
             return f"Dream failed: {e}"
+
+    async def run_force(self) -> str:
+        """Force-run dream consolidation, bypassing all gates.
+        强制执行记忆巩固，跳过所有门控。
+        Maps to: manual /dream command in commands/dream.ts
+        """
+        prior_mtime = self.lock.try_acquire()
+        if prior_mtime is None:
+            return "Dream skipped: Lock gate — consolidation already in progress"
+
+        try:
+            logger.info("💤 Dream consolidation started (forced)...")
+
+            from claw_agent.core.engine import Engine
+            from claw_agent.tools.bash_tool import BashTool
+            from claw_agent.tools.file_tools import FileReadTool, FileWriteTool, FileEditTool
+            from claw_agent.memory.memory import MEMORY_FILE
+
+            tools = [BashTool(), FileReadTool(), FileWriteTool(), FileEditTool()]
+            engine = Engine(config=self.app_config, tools=tools)
+
+            prompt = build_consolidation_prompt(self.memory.memory_dir, MEMORY_FILE)
+
+            output = ""
+            async for event in engine.run(prompt, max_turns=10):
+                if self._parent_engine and self._parent_engine.aborted:
+                    engine.abort()
+                    output = "Dream aborted: parent engine was cancelled"
+                    break
+                if event["type"] in ("done", "error"):
+                    output = event["content"]
+
+            self.state.last_consolidated_at = time.time()
+            self.state.session_count = 0
+            self._save_state()
+            self.lock.release()
+
+            logger.info("💤 Dream consolidation completed (forced).")
+            return f"Dream success: {output}"
+
+        except Exception as e:
+            self.lock.rollback(prior_mtime)
+            logger.error(f"Dream failed: {e}")
+            return f"Dream failed: {e}"
+
+
+# ────────────────────────────────────────────────────────────────
+# Hook factories — create HookCallbacks for registration
+# Maps to: executeAutoDream() in stopHooks.ts:155
+# ────────────────────────────────────────────────────────────────
+
+def create_dream_hook(dream_engine: DreamEngine):
+    """Create a fire-and-forget HookCallback that triggers dream consolidation.
+    创建一个触发记忆巩固的后台钩子回调。
+
+    Maps to: `void executeAutoDream(stopHookContext, ...)` in stopHooks.ts:155
+    Registered as STOP event hook with fire_and_forget=True.
+
+    The three-gate check (time, sessions, lock) inside DreamEngine.run()
+    makes this cheap per-turn — only one stat + one counter check.
+    """
+    from claw_agent.core.hooks import HookContext, HookResult
+
+    async def _dream_hook(ctx: HookContext) -> Optional[HookResult]:
+        result = await dream_engine.run()
+        if "success" in result.lower():
+            return HookResult(additional_context=result)
+        logger.debug(f"[dream_hook] {result}")
+        return None
+
+    _dream_hook.__name__ = "auto_dream"
+    return _dream_hook
+
+
+def create_session_record_hook(dream_engine: DreamEngine):
+    """Create a SESSION_END hook that increments the session counter.
+    创建一个 SESSION_END 钩子，递增会话计数器。
+
+    Maps to: session counting logic that feeds Gate 2 (min_sessions)
+    in autoDream.ts. Original tracks via listSessionsTouchedSince();
+    we simplify to an explicit counter.
+    """
+    from claw_agent.core.hooks import HookContext, HookResult
+
+    async def _session_record_hook(ctx: HookContext) -> Optional[HookResult]:
+        dream_engine.record_session()
+        logger.debug(
+            f"[session_record] Session count: {dream_engine.state.session_count}"
+        )
+        return None
+
+    _session_record_hook.__name__ = "session_record"
+    return _session_record_hook

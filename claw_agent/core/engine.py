@@ -23,6 +23,8 @@ import re
 import time
 from typing import Any, AsyncGenerator, Optional
 
+from claw_agent.core.hooks import HookContext, HookEvent, HookManager, HookResult
+
 from claw_agent.config import Config
 from claw_agent.core.messages import (
     AssistantMessage, Message, SystemMessage, ToolCall, ToolResult, UserMessage,
@@ -30,9 +32,9 @@ from claw_agent.core.messages import (
 )
 from claw_agent.core.tool import Tool, ToolContext, ToolRegistry
 from claw_agent.core.permissions import PermissionContext, check_permission
-from claw_agent.core.provider import LLMProvider, create_provider
-from claw_agent.core.prompts import PromptBuilder
-from claw_agent.core.compact import (
+from claw_agent.providers import LLMProvider, create_provider
+from claw_agent.instructions.prompts import PromptBuilder
+from claw_agent.memory.compact import (
     auto_compact_if_needed,
     CompactTrackingState,
 )
@@ -129,6 +131,7 @@ class Engine:
         permission_ctx: Optional[PermissionContext] = None,
         provider: Optional[LLMProvider] = None,
         event_queue: Optional[asyncio.Queue[str]] = None,
+        hook_manager: Optional[HookManager] = None,
         memory: Optional[Any] = None,  # claw_agent.memory.Memory
     ):
         self.config = config
@@ -148,6 +151,10 @@ class Engine:
 
         # Async event injection queue (for SubAgent <task-notification>)
         self.event_queue = event_queue
+
+        # Hook manager — lifecycle event system
+        # Maps to: postSamplingHooks + stopHooks + toolHooks in the TS source
+        self.hook_manager = hook_manager or HookManager()
 
         # --- Background task registry (streaming re-entry) ---
         # Tracks IDs of workers that are currently running.
@@ -401,6 +408,13 @@ class Engine:
 
             # --- 1. Auto-compact check ---
             api_messages = messages_to_api(self.messages)
+            # --- PRE_COMPACT hook ---
+            compact_ctx = HookContext(
+                messages=list(self.messages),
+                engine=self,
+            )
+            await self.hook_manager.execute(HookEvent.PRE_COMPACT, compact_ctx)
+
             new_messages, was_compacted = await auto_compact_if_needed(
                 messages=api_messages,
                 model=self.config.effective_model,
@@ -419,6 +433,13 @@ class Engine:
                     "content": "Conversation compacted to stay within context window.",
                 }
                 api_messages = messages_to_api(self.messages)
+
+                # --- POST_COMPACT hook ---
+                post_compact_ctx = HookContext(
+                    messages=list(self.messages),
+                    engine=self,
+                )
+                await self.hook_manager.execute(HookEvent.POST_COMPACT, post_compact_ctx)
 
             # --- 2. Check Event Queue (non-blocking fast path) ---
             pending_events = self._drain_event_queue()
@@ -459,6 +480,26 @@ class Engine:
             # --- 5. No tool calls → check for background tasks (streaming re-entry) ---
             if not assistant_msg.tool_calls:
                 if not self.has_pending_background_tasks():
+                    # --- STOP hook (turn end) ---
+                    # This is where auto-dream fires (fire-and-forget).
+                    # Maps to: handleStopHooks() → executeAutoDream() in stopHooks.ts
+                    stop_ctx = HookContext(
+                        messages=list(self.messages),
+                        engine=self,
+                    )
+                    stop_results = await self.hook_manager.execute(
+                        HookEvent.STOP, stop_ctx
+                    )
+
+                    # Check if any stop hook blocked continuation
+                    for sr in stop_results:
+                        if sr.blocking_error:
+                            yield {
+                                "type": "error",
+                                "content": f"Stop hook blocked: {sr.blocking_error}",
+                            }
+                            return
+
                     # No background tasks — genuinely done
                     yield {"type": "done", "content": assistant_msg.content or ""}
                     return
@@ -502,8 +543,40 @@ class Engine:
                         is_error=True,
                     )
                 else:
+                    # --- PRE_TOOL_USE hook ---
+                    # Maps to: runPreToolUseHooks() in toolHooks.ts
+                    pre_ctx = HookContext(
+                        messages=list(self.messages),
+                        tool_name=tc.name,
+                        tool_input=tc.arguments,
+                        engine=self,
+                    )
+                    pre_results = await self.hook_manager.execute(
+                        HookEvent.PRE_TOOL_USE, pre_ctx
+                    )
+
+                    # Check if pre-hook blocked the tool
+                    blocked = False
+                    effective_args = tc.arguments
+                    for pr in pre_results:
+                        if pr.blocking_error:
+                            result = ToolResult(
+                                tool_call_id=tc.id,
+                                content=f"Blocked by hook: {pr.blocking_error}",
+                                is_error=True,
+                            )
+                            blocked = True
+                            break
+                        if pr.updated_input is not None:
+                            effective_args = pr.updated_input
+
+                    if blocked:
+                        self.messages.append(result)
+                        yield {"type": "tool_result", "name": tc.name, "content": result.content}
+                        continue
+
                     # Permission check
-                    perm = check_permission(tool_instance, tc.arguments, self.permission_ctx)
+                    perm = check_permission(tool_instance, effective_args, self.permission_ctx)
                     if not perm.allowed:
                         result = ToolResult(
                             tool_call_id=tc.id,
@@ -512,13 +585,39 @@ class Engine:
                         )
                     else:
                         try:
-                            output = await tool_instance.call(tc.arguments, ctx)
+                            output = await tool_instance.call(effective_args, ctx)
                             result = ToolResult(tool_call_id=tc.id, content=output)
+
+                            # --- POST_TOOL_USE hook ---
+                            # Maps to: runPostToolUseHooks() in toolHooks.ts
+                            post_ctx = HookContext(
+                                messages=list(self.messages),
+                                tool_name=tc.name,
+                                tool_input=effective_args,
+                                tool_output=output,
+                                engine=self,
+                            )
+                            await self.hook_manager.execute(
+                                HookEvent.POST_TOOL_USE, post_ctx
+                            )
+
                         except Exception as e:
                             result = ToolResult(
                                 tool_call_id=tc.id,
                                 content=f"Tool error: {e}",
                                 is_error=True,
+                            )
+                            # --- POST_TOOL_FAILURE hook ---
+                            # Maps to: runPostToolUseFailureHooks() in toolHooks.ts
+                            fail_ctx = HookContext(
+                                messages=list(self.messages),
+                                tool_name=tc.name,
+                                tool_input=effective_args,
+                                tool_error=str(e),
+                                engine=self,
+                            )
+                            await self.hook_manager.execute(
+                                HookEvent.POST_TOOL_FAILURE, fail_ctx
                             )
 
                 self.messages.append(result)

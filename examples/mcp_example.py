@@ -6,7 +6,7 @@ Connect to an MCP server and use its tools in the agent.
 import asyncio
 from claw_agent import Engine, Config
 from claw_agent.tools import get_default_tools
-from claw_agent.core.mcp_client import MCPManager, MCPServerConfig
+from claw_agent.integrations.mcp_client import MCPManager, MCPServerConfig
 
 
 async def main():

@@ -9,6 +9,8 @@ from claw_agent.tools.file_tools import FileReadTool, FileWriteTool, FileEditToo
 from claw_agent.tools.glob_tool import GlobTool
 from claw_agent.tools.grep_tool import GrepTool
 from claw_agent.tools.web_fetch_tool import WebFetchTool
+from claw_agent.tools.web_search_tool import WebSearchTool
+from claw_agent.tools.ask_user_tool import AskUserQuestionTool
 
 
 def get_default_tools():
@@ -23,4 +25,6 @@ def get_default_tools():
         GlobTool(),
         GrepTool(),
         WebFetchTool(),
+        WebSearchTool(),
+        AskUserQuestionTool(),
     ]

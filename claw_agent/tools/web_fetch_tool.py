@@ -36,7 +36,7 @@ class WebFetchTool(Tool):
         headers = arguments.get("headers", {})
 
         try:
-            default_headers = {"User-Agent": "CrawAgent/0.2 (httpx)"}
+            default_headers = {"User-Agent": "ClawAgent/0.2 (httpx)"}
             default_headers.update(headers)
             async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
                 resp = await client.request(method, url, headers=default_headers)

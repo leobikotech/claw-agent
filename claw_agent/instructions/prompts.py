@@ -15,7 +15,7 @@ import platform
 import subprocess
 from typing import List, Optional
 
-from claw_agent.core.clawmd import (
+from claw_agent.instructions.clawmd import (
     InstructionFile,
     discover_instruction_files,
     format_instructions_prompt,

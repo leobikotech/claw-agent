@@ -34,7 +34,7 @@ class Config:
     permission_mode: str = "default"  # default | auto | yolo
 
     # --- Memory ---
-    memory_dir: Optional[str] = None  # None = auto (~/.agent/memory/)
+    memory_dir: Optional[str] = None  # None = auto (~/.claw/memory/)
 
     # --- Feature flags (maps to bun:bundle feature()) ---
     features: dict = field(default_factory=lambda: {
@@ -61,14 +61,14 @@ class Config:
     def effective_memory_dir(self) -> str:
         if self.memory_dir:
             return self.memory_dir
-        return os.path.join(os.path.expanduser("~"), ".agent", "memory")
+        return os.path.join(os.path.expanduser("~"), ".claw", "memory")
 
     @property
     def effective_model(self) -> str:
         """Resolve model name — use explicit or provider default / 解析模型名"""
         if self.model:
             return self.model
-        from claw_agent.core.provider import PROVIDER_PRESETS
+        from claw_agent.providers.presets import PROVIDER_PRESETS
         preset = PROVIDER_PRESETS.get(self.provider.lower(), {})
         return preset.get("model", "gpt-4o")
 
@@ -77,7 +77,7 @@ class Config:
         """Resolve API key — explicit > env var per provider / 解析 API key"""
         if self.api_key:
             return self.api_key
-        from claw_agent.core.provider import PROVIDER_PRESETS
+        from claw_agent.providers.presets import PROVIDER_PRESETS
         preset = PROVIDER_PRESETS.get(self.provider.lower(), {})
         env_key = preset.get("env_key", "")
         return os.environ.get(env_key, "")
