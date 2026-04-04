@@ -13,7 +13,13 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-from typing import Optional
+from typing import List, Optional
+
+from claw_agent.core.clawmd import (
+    InstructionFile,
+    discover_instruction_files,
+    format_instructions_prompt,
+)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -147,6 +153,8 @@ class PromptBuilder:
         self.memory_prompt: Optional[str] = None
         self.mcp_prompt: Optional[str] = None
         self.language: Optional[str] = None
+        self._instruction_files: List[InstructionFile] = []
+        self._instructions_prompt: Optional[str] = None
 
     def set_domain_instructions(self, extra: str) -> "PromptBuilder":
         """
@@ -170,6 +178,23 @@ class PromptBuilder:
         """
         self.language = lang
         return self
+
+    def load_instructions(self, cwd: Optional[str] = None) -> "PromptBuilder":
+        """Discover and load CLAW.md instruction files / 发现并加载 CLAW.md 指令文件
+        Maps to: getMemoryFiles() + getClaudeMds() in claudemd.ts
+
+        Searches for CLAW.md, .claw/CLAW.md, .claw/rules/*.md, and
+        CLAW.local.md from CWD upward to root, plus ~/.claw/ for
+        user-level instructions.
+        """
+        self._instruction_files = discover_instruction_files(cwd or self.cwd)
+        self._instructions_prompt = format_instructions_prompt(self._instruction_files)
+        return self
+
+    @property
+    def instruction_files(self) -> List[InstructionFile]:
+        """The discovered instruction files (after load_instructions)."""
+        return self._instruction_files
 
     def _get_env_info(self) -> str:
         """Environment injection / 环境信息注入
@@ -232,7 +257,11 @@ class PromptBuilder:
         if self.mcp_prompt:
             parts.append(self.mcp_prompt)
 
-        # Domain specific rules (Overrides generic behavior)
+        # CLAW.md instructions (project / user / local)
+        if self._instructions_prompt:
+            parts.append(self._instructions_prompt)
+
+        # Domain specific rules (Overrides generic behavior — highest priority)
         if self.domain_instructions:
             parts.append(f"# Domain Instructions\n{self.domain_instructions}")
 

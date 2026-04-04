@@ -46,6 +46,25 @@ As conversations grow long, approaching 128k/200k token limits, the system inter
 #### 5. Background Task Lifecycle Management
 All background executions—from spawned workers to `run_in_background` shell commands—are tracked in the engine's **Background Task Registry** (`_bg_tasks`). Every background process produces a `<task-notification>` on completion, and the engine's streaming re-entry loop keeps the main loop alive until all tasks finish. Tools access the live abort signal via `ToolContext.is_aborted`, ensuring cooperative cancellation works even for long-running tool executions.
 
+#### 6. CLAW.md — Project-Level Instructions
+Inspired by Claude Code's `CLAUDE.md`, Claw Agent supports **project-level instruction files** that are automatically discovered and injected into the system prompt. This is the most important mechanism for customizing agent behavior per-project:
+
+| File | Priority | Purpose |
+|------|----------|---------|
+| `~/.claw/CLAW.md` | Global | Private instructions for all projects |
+| `~/.claw/rules/*.md` | Global rules | Modular global rules |
+| `CLAW.md` | Project | Checked into the codebase |
+| `.claw/CLAW.md` | Project | Alternative location |
+| `.claw/rules/*.md` | Project rules | Modular project rules (e.g., `security.md`, `style.md`) |
+| `CLAW.local.md` | Local | Private per-project (gitignored) |
+
+**Features:**
+- **Auto-discovery**: Files are found by walking from CWD upward to the filesystem root
+- **@include**: Reference other files with `@./path`, `@~/path`, or `@/absolute/path`
+- **Frontmatter**: YAML frontmatter with `paths:` field for conditional rules (only apply to matching files)
+- **HTML comment stripping**: `<!-- comments -->` are removed from output
+- **Priority ordering**: Later-loaded files (closer to CWD) have higher priority
+
 ---
 
 ## ⚡ Examples

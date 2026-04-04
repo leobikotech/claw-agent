@@ -204,6 +204,9 @@ class Engine:
         """Assemble the system prompt via PromptBuilder / 使用 PromptBuilder 组装"""
         builder = PromptBuilder(self.config.cwd)
 
+        # Auto-discover CLAW.md instruction files (maps to getMemoryFiles + getClaudeMds in claudemd.ts)
+        builder.load_instructions()
+
         # Add system prompt overrides/additions from Config
         if self.config.system_prompt:
             builder.set_domain_instructions(self.config.system_prompt)
