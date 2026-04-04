@@ -196,7 +196,7 @@ async def db_query(args, ctx):
 If Claw Agent helps make your agents more powerful and transparent, give us a star! ⭐
 
 <div align="center">
-  <a href="https://star-history.com/#leobikotech/claw-agent&Date">
+  <a href="https://star-history.com/#leobikotech/claw-agent&Date&v=0404">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=leobikotech/claw-agent&type=Date&theme=dark" />
       <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=leobikotech/claw-agent&type=Date" />
