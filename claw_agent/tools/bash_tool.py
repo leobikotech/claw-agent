@@ -245,9 +245,52 @@ class BashTool(Tool):
             )
 
             if run_in_background:
-                # Fire-and-forget: return immediately, notify later
-                # (Notification mechanism will be added with Engine integration)
-                return f"Command started in background (PID: {proc.pid})"
+                # Assign a stable task ID for engine tracking
+                task_id = f"bash_bg_{proc.pid}"
+
+                async def _bg_wait():
+                    """Await the background process and push a notification."""
+                    try:
+                        stdout, stderr = await proc.communicate()
+                        output_parts = []
+                        if stdout:
+                            output_parts.append(stdout.decode(errors="replace"))
+                        if stderr:
+                            output_parts.append(f"[stderr]\n{stderr.decode(errors='replace')}")
+                        if proc.returncode != 0:
+                            output_parts.append(f"[exit code: {proc.returncode}]")
+                        result_text = "\n".join(output_parts) if output_parts else "(no output)"
+                        status = "completed" if proc.returncode == 0 else "failed"
+                    except asyncio.CancelledError:
+                        proc.kill()
+                        result_text = "(background command cancelled)"
+                        status = "killed"
+                    except Exception as e:
+                        result_text = f"Background command error: {e}"
+                        status = "failed"
+
+                    # Push notification into the event queue (same format as coordinator)
+                    if context.engine and context.engine.event_queue:
+                        notification = (
+                            f"<task-notification>\n"
+                            f"<task-id>{task_id}</task-id>\n"
+                            f"<status>{status}</status>\n"
+                            f"<summary>Background command (PID {proc.pid}) {status}</summary>\n"
+                            f"<result>{result_text}</result>\n"
+                            f"</task-notification>"
+                        )
+                        await context.engine.event_queue.put(notification)
+
+                asyncio.create_task(_bg_wait())
+
+                # Register with engine so streaming re-entry keeps the loop alive
+                if context.engine is not None:
+                    context.engine.register_background_task(task_id)
+
+                return (
+                    f"Command started in background (PID: {proc.pid}, task_id: {task_id}). "
+                    f"You will receive a <task-notification> when it completes."
+                )
 
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
 

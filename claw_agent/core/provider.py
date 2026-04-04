@@ -313,7 +313,7 @@ class GeminiProvider(LLMProvider):
             config.system_instruction = system_instruction
 
         # Gemini SDK is sync by default — run in executor
-        response = await asyncio.get_event_loop().run_in_executor(
+        response = await asyncio.get_running_loop().run_in_executor(
             None,
             lambda: self._client.models.generate_content(
                 model=model, contents=contents, config=config,

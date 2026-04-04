@@ -155,6 +155,11 @@ class SpawnWorkerTool(Tool):
                     usage={"duration_ms": elapsed_ms},
                 )
             except asyncio.CancelledError:
+                # Bug 4 fix: if TaskStopTool already deregistered this worker
+                # from the engine, skip the duplicate notification.
+                if context.engine and worker_id not in context.engine._bg_tasks:
+                    logger.info(f"Worker '{worker_id}' cancelled (already deregistered, skipping notification).")
+                    return
                 notification = _build_notification(
                     worker_id=worker_id,
                     status="killed",
@@ -166,6 +171,9 @@ class SpawnWorkerTool(Tool):
                     status="failed",
                     summary=f'Worker "{worker_id}" failed: {e}',
                 )
+            finally:
+                # Bug 3 fix: clean up _ACTIVE_WORKERS to prevent memory leak
+                _ACTIVE_WORKERS.pop(worker_id, None)
 
             await self.event_queue.put(notification)
             logger.info(f"Worker '{worker_id}' finished.")
@@ -178,11 +186,17 @@ class SpawnWorkerTool(Tool):
             event_queue=self.event_queue,
         )
 
+        # Register with engine's background task registry (streaming re-entry)
+        if context.engine is not None:
+            context.engine.register_background_task(worker_id)
+
         return (
             f"Worker '{worker_id}' launched. You will receive an asynchronous "
             f"<task-notification> when it finishes. You can proceed with other work.\n"
-            f"To send follow-up instructions later, use send_message with to='{worker_id}'."
-        )
+            f"To send follow-up instructions later, use send_message with to='{worker_id}'.")
+
+    def get_parameters(self) -> dict:
+        return self.parameters
 
 
 # ────────────────────────────────────────────────────────────────
@@ -262,6 +276,10 @@ class SendMessageTool(Tool):
                     usage={"duration_ms": elapsed_ms},
                 )
             except asyncio.CancelledError:
+                # Bug 4 fix: skip duplicate notification if already deregistered
+                if context.engine and worker_id not in context.engine._bg_tasks:
+                    logger.info(f"Worker '{worker_id}' cancelled (already deregistered, skipping notification).")
+                    return
                 notification = _build_notification(
                     worker_id=worker_id,
                     status="killed",
@@ -273,6 +291,9 @@ class SendMessageTool(Tool):
                     status="failed",
                     summary=f'Worker "{worker_id}" failed: {e}',
                 )
+            finally:
+                # Bug 3 fix: clean up _ACTIVE_WORKERS to prevent memory leak
+                _ACTIVE_WORKERS.pop(worker_id, None)
 
             await self.event_queue.put(notification)
             logger.info(f"Worker '{worker_id}' (continued) finished.")
@@ -285,7 +306,14 @@ class SendMessageTool(Tool):
             event_queue=self.event_queue,
         )
 
+        # Register with engine's background task registry (streaming re-entry)
+        if context.engine is not None:
+            context.engine.register_background_task(worker_id)
+
         return f"Follow-up sent to worker '{worker_id}'. It will resume and notify you when done."
+
+    def get_parameters(self) -> dict:
+        return self.parameters
 
 
 # ────────────────────────────────────────────────────────────────
@@ -322,10 +350,20 @@ class TaskStopTool(Tool):
             return f"Worker '{worker_id}' has already finished."
 
         state.task.cancel()
+
+        # Immediately deregister from engine's background task registry.
+        # The cancelled task may not produce a <task-notification>, so we
+        # must remove it here to prevent the engine from waiting forever.
+        if context.engine is not None:
+            context.engine.complete_background_task(worker_id)
+
         return (
             f"Cancellation signal sent to '{worker_id}'. "
             f"You can continue it later with send_message."
         )
+
+    def get_parameters(self) -> dict:
+        return self.parameters
 
 
 # ────────────────────────────────────────────────────────────────

@@ -134,6 +134,13 @@ async def repl():
                     console.print()
                     console.print(Markdown(event["content"]))
                     console.print()
+                elif event["type"] == "partial":
+                    console.print()
+                    console.print(Markdown(event["content"]))
+                elif event["type"] == "waiting":
+                    console.print(f"  [dim]⏳ {event['content']}[/dim]")
+                elif event["type"] == "worker_notification":
+                    console.print(f"  [magenta]📨 Worker notification received[/magenta]")
                 elif event["type"] == "error":
                     console.print(f"[red]Error: {event['content']}[/red]")
 

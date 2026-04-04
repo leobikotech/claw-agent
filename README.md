@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/Architecture-Claude_Code-blue" alt="Architecture">
   <img src="https://img.shields.io/badge/Language-Python_3.9+-yellow" alt="Python">
   <img src="https://img.shields.io/badge/Provider-Agnostic-success" alt="Provider Agnostic">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
 </div>
 
 [🇨🇳 简体中文文档 (Chinese Version)](./readme_cn.md)
@@ -31,14 +32,19 @@ This project was born from a deep parse and rewrite of the **closed-source Anthr
 #### 1. Modular PromptBuilder
 Say goodbye to thousands of lines of "spaghetti" Prompts. The system is strictly divided into: `System Guardrails` + `Tool Safety Guidelines` + `Tone/Style` + `Business Customization (DOMAIN_INSTRUCTIONS)`. This provides an extremely clean injection experience when building agents.
 
-#### 2. True Async Coordinator
+#### 2. True Async Coordinator with Streaming Re-entry
 Unlike the blocking workflows in most Python frameworks, we natively implemented non-blocking streams via `asyncio.Queue`. When the Coordinator spawns a sub-agent task, the LLM is **not blocked** and can immediately handle other sub-tasks. Completed background tasks return to the main loop via `<task-notification>` events in the queue—just like an incoming WeChat popup.
 
+The **Streaming Re-entry** architecture mirrors the TypeScript `QueryEngine`: when background workers are still running but the LLM produces no tool calls, the engine **suspends** instead of exiting—awaiting the event queue for worker notifications, then re-entering the LLM loop. This eliminates premature termination and ensures reliable long-running orchestration.
+
 #### 3. Grounded Auto-Dream & Relevance Injection
-More than simple "RAG". Before each query, the engine actively injects previously relevant file memories. In the background, upon hitting thresholds, a "Headless Engine" wakes up to read messy `.md` memory files, prunes outdated facts, organizes timelines, and condenses indices—keeping context pristine.
+More than simple "RAG". Before each query, the engine actively injects previously relevant file memories. In the background, upon hitting thresholds, a "Headless Engine" wakes up to read messy `.md` memory files, prunes outdated facts, organizes timelines, and condenses indices—keeping context pristine. Dream engines support cooperative abort propagation so they don't hang the process on Ctrl+C.
 
 #### 4. Zero Context Overflow via Auto-Compact
 As conversations grow long, approaching 128k/200k token limits, the system intercepts and triggers an LLM summarization compression algorithm in the background—condensing massive token counts into a single core message to completely prevent crashes.
+
+#### 5. Background Task Lifecycle Management
+All background executions—from spawned workers to `run_in_background` shell commands—are tracked in the engine's **Background Task Registry** (`_bg_tasks`). Every background process produces a `<task-notification>` on completion, and the engine's streaming re-entry loop keeps the main loop alive until all tasks finish. Tools access the live abort signal via `ToolContext.is_aborted`, ensuring cooperative cancellation works even for long-running tool executions.
 
 ---
 
@@ -63,7 +69,7 @@ Clone this repository and install via pip.
 
 ```bash
 git clone https://github.com/leobikotech/claw-agent.git
-cd Claw-Agent
+cd claw-agent
 
 # Basic Installation: Supports OpenAI specs, DeepSeek, MiniMax, etc.
 pip install -e .

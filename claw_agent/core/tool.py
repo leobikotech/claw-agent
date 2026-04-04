@@ -82,8 +82,21 @@ class ToolContext:
     messages: list = field(default_factory=list)
     # Agent nesting depth (0 = main thread) / 代理嵌套深度
     depth: int = 0
-    # Abort signal / 中止信号
+    # Abort signal (static snapshot — prefer is_aborted property for live check)
     aborted: bool = False
+    # Back-reference to Engine for background task registration (streaming re-entry)
+    # 引擎反向引用，用于后台任务注册（流式重入架构）
+    engine: Optional[Any] = None
+
+    @property
+    def is_aborted(self) -> bool:
+        """Live abort check — delegates to engine if available.
+        Prefer this over the static `aborted` field, which is a snapshot
+        that won't reflect an abort signal received after context creation.
+        """
+        if self.engine is not None:
+            return self.engine.aborted
+        return self.aborted
 
 
 # --- Tool Registry (maps to getAllBaseTools() + getTools() in tools.ts) ---

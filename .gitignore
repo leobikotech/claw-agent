@@ -32,4 +32,5 @@ Thumbs.db
 
 # Agent runtime data
 .agent/
-memory/
+# Runtime memory data (not the source package claw_agent/memory/)
+/memory/
