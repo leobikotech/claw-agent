@@ -305,11 +305,15 @@ async def auto_compact_if_needed(
     provider: Any,  # LLMProvider
     tracking: Optional[CompactTrackingState] = None,
     custom_instructions: Optional[str] = None,
+    session_persistence: Optional[Any] = None,  # SessionPersistence
 ) -> tuple[list[dict[str, Any]], bool]:
     """Run autocompact if needed. Returns (new_messages, was_compacted).
     Maps to: autoCompactIfNeeded() in autoCompact.ts
 
     This is the main entry point called by Engine after each turn.
+    If session_persistence is provided and has non-empty notes, uses
+    session-memory compact (trySessionMemoryCompaction). Otherwise
+    falls back to legacy LLM compact.
     """
     if tracking and tracking.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
         logger.warning("autocompact: circuit breaker tripped, skipping")
@@ -320,6 +324,19 @@ async def auto_compact_if_needed(
 
     logger.info("autocompact: threshold exceeded, compacting conversation...")
 
+    # --- Try session-memory compact first ---
+    # Maps to: trySessionMemoryCompaction() in sessionMemoryCompact.ts
+    if session_persistence is not None:
+        try:
+            sm_result = await _try_session_memory_compact(
+                messages, session_persistence, tracking
+            )
+            if sm_result is not None:
+                return sm_result, True
+        except Exception as e:
+            logger.warning(f"autocompact: session-memory compact failed, falling back: {e}")
+
+    # --- Fallback: legacy LLM compact ---
     try:
         compact_prompt = get_compact_prompt(custom_instructions)
         compact_messages = [
@@ -368,6 +385,242 @@ async def auto_compact_if_needed(
         if tracking:
             tracking.consecutive_failures += 1
         return messages, False
+
+
+# ────────────────────────────────────────────────────────────────
+# Session-memory compact — maps to sessionMemoryCompact.ts
+# ────────────────────────────────────────────────────────────────
+
+# Configuration for how many recent messages to preserve
+SM_COMPACT_MIN_TOKENS = 10_000       # Minimum tokens to keep after compact
+SM_COMPACT_MAX_TOKENS = 40_000       # Hard cap on preserved tokens
+SM_COMPACT_MIN_TEXT_MESSAGES = 5     # Minimum messages with text blocks to keep
+
+
+async def _try_session_memory_compact(
+    messages: list[dict[str, Any]],
+    session_persistence: Any,  # SessionPersistence
+    tracking: Optional[CompactTrackingState] = None,
+) -> Optional[list[dict[str, Any]]]:
+    """Try to compact using session notes instead of LLM summarization.
+    Maps to: trySessionMemoryCompaction() in sessionMemoryCompact.ts
+
+    Returns new_messages on success, or None if session-memory compact
+    cannot be used (falls back to legacy).
+    """
+    from claw_agent.memory.session_prompts import (
+        is_session_notes_empty,
+        truncate_session_notes_for_compact,
+    )
+
+    # Wait for any in-progress extraction to complete
+    await session_persistence.wait_for_extraction()
+
+    # Read session notes
+    session_notes = session_persistence.get_content()
+    if session_notes is None:
+        logger.debug("autocompact: no session notes file, skipping SM compact")
+        return None
+
+    # Check if notes are still the blank template
+    if is_session_notes_empty(session_notes):
+        logger.debug("autocompact: session notes empty (template only), skipping SM compact")
+        return None
+
+    # Truncate oversized sections
+    truncated_notes, was_truncated = truncate_session_notes_for_compact(session_notes)
+
+    # Build summary from session notes
+    summary_prefix = (
+        "This session is being continued from a previous conversation that ran "
+        "out of context. The session notes below were maintained during the earlier "
+        "portion of the conversation and capture the key context.\n\n"
+    )
+    summary_text = summary_prefix + truncated_notes
+
+    if was_truncated:
+        summary_text += (
+            f"\n\nSome session notes sections were truncated for length. "
+            f"The full session notes can be viewed at: {session_persistence.notes_path}"
+        )
+
+    summary_text += (
+        "\nContinue the conversation from where it left off without asking "
+        "the user any further questions. Resume directly — do not acknowledge "
+        "the summary, do not recap what was happening, do not preface with "
+        '"I\'ll continue" or similar. Pick up the last task as if the break '
+        "never happened."
+    )
+
+    # Determine which recent messages to keep (un-summarized)
+    last_summarized_id = session_persistence.last_summarized_message_id
+    keep_from_index = _calculate_messages_to_keep_index(
+        messages, last_summarized_id
+    )
+
+    # Build final messages: [summary] + [recent un-summarized messages]
+    recent_messages = messages[keep_from_index:]
+    new_messages = [
+        {"role": "user", "content": summary_text},
+    ] + recent_messages
+
+    if tracking:
+        tracking.compacted = True
+        tracking.consecutive_failures = 0
+        tracking.turn_counter = 0
+
+    logger.info(
+        f"autocompact (session-memory): compressed {len(messages)} messages → "
+        f"1 summary + {len(recent_messages)} recent "
+        f"(~{estimate_tokens_messages(new_messages)} tokens)"
+    )
+
+    return new_messages
+
+
+def _calculate_messages_to_keep_index(
+    messages: list[dict[str, Any]],
+    last_summarized_id: Optional[str],
+) -> int:
+    """Calculate the starting index for messages to keep after compact.
+    Maps to: calculateMessagesToKeepIndex() in sessionMemoryCompact.ts
+
+    Starts from last_summarized_id, then expands backwards to meet minimums.
+    Finally adjusts the index to preserve tool_use/tool_result API invariants.
+    """
+    if not messages:
+        return 0
+
+    # Find the index of the last summarized message
+    last_idx = len(messages)  # default: no messages summarized → keep none initially
+    if last_summarized_id:
+        for i, msg in enumerate(messages):
+            msg_uuid = msg.get("uuid") or msg.get("id")
+            if msg_uuid == last_summarized_id:
+                last_idx = i + 1  # Start from message after the summarized one
+                break
+
+    start_index = last_idx
+
+    # Calculate current token count and text-message count from start to end
+    total_tokens = 0
+    text_msg_count = 0
+    for i in range(start_index, len(messages)):
+        msg = messages[i]
+        token_est = len(str(msg.get("content", ""))) // 4
+        total_tokens += token_est
+        content = msg.get("content", "")
+        if isinstance(content, str) and content.strip():
+            text_msg_count += 1
+
+    # Check if we already meet both minimums
+    if total_tokens >= SM_COMPACT_MIN_TOKENS and text_msg_count >= SM_COMPACT_MIN_TEXT_MESSAGES:
+        return _adjust_index_to_preserve_api_invariants(messages, start_index)
+
+    # Check if we already hit the max cap
+    if total_tokens >= SM_COMPACT_MAX_TOKENS:
+        return _adjust_index_to_preserve_api_invariants(messages, start_index)
+
+    # Expand backwards until we meet both minimums or hit max cap
+    for i in range(start_index - 1, -1, -1):
+        msg = messages[i]
+        token_est = len(str(msg.get("content", ""))) // 4
+        total_tokens += token_est
+        content = msg.get("content", "")
+        if isinstance(content, str) and content.strip():
+            text_msg_count += 1
+        start_index = i
+
+        if total_tokens >= SM_COMPACT_MAX_TOKENS:
+            break
+        if total_tokens >= SM_COMPACT_MIN_TOKENS and text_msg_count >= SM_COMPACT_MIN_TEXT_MESSAGES:
+            break
+
+    return _adjust_index_to_preserve_api_invariants(messages, start_index)
+
+
+def _adjust_index_to_preserve_api_invariants(
+    messages: list[dict[str, Any]],
+    start_index: int,
+) -> int:
+    """Adjust the start index to ensure we don't split tool_use/tool_result pairs.
+    Maps to: adjustIndexToPreserveAPIInvariants() in sessionMemoryCompact.ts
+
+    If any message we're keeping contains tool_result blocks, we need to include
+    the preceding assistant message(s) that contain the matching tool_use blocks.
+    Otherwise the API will reject the request with an orphaned tool_result error.
+
+    This handles two scenarios from the original TS:
+      1. Tool pair splitting: a tool_result references a tool_use that would be pruned
+      2. Shared message IDs: streaming yields separate messages per content block
+         (thinking, tool_use) with the same message.id — if one is kept, all must be
+
+    Example: if startIndex lands between an assistant[tool_use] and user[tool_result],
+    we pull startIndex back to include the assistant message.
+    """
+    if start_index <= 0 or start_index >= len(messages):
+        return start_index
+
+    adjusted = start_index
+
+    # ── Step 1: Collect all tool_result IDs from the kept range ──
+    all_tool_result_ids: list[str] = []
+    for i in range(start_index, len(messages)):
+        msg = messages[i]
+        if msg.get("role") == "tool":
+            tc_id = msg.get("tool_call_id")
+            if tc_id:
+                all_tool_result_ids.append(tc_id)
+
+    if all_tool_result_ids:
+        # Collect tool_use IDs already present in the kept range
+        tool_use_ids_in_kept: set[str] = set()
+        for i in range(adjusted, len(messages)):
+            msg = messages[i]
+            if msg.get("role") == "assistant":
+                for tc in msg.get("tool_calls", []):
+                    tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                    if tc_id:
+                        tool_use_ids_in_kept.add(tc_id)
+
+        # Find tool_result IDs whose matching tool_use is NOT in the kept range
+        needed_ids = set(
+            tid for tid in all_tool_result_ids
+            if tid not in tool_use_ids_in_kept
+        )
+
+        # Walk backwards to find assistant messages with the missing tool_use blocks
+        for i in range(adjusted - 1, -1, -1):
+            if not needed_ids:
+                break
+            msg = messages[i]
+            if msg.get("role") == "assistant":
+                for tc in msg.get("tool_calls", []):
+                    tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                    if tc_id and tc_id in needed_ids:
+                        adjusted = i
+                        needed_ids.discard(tc_id)
+
+    # ── Step 2: Handle shared message IDs (thinking blocks) ──
+    # Collect all message IDs from assistant messages in the kept range
+    msg_ids_in_kept: set[str] = set()
+    for i in range(adjusted, len(messages)):
+        msg = messages[i]
+        if msg.get("role") == "assistant":
+            mid = msg.get("message_id") or msg.get("id")
+            if mid:
+                msg_ids_in_kept.add(mid)
+
+    # Walk backwards for assistant messages sharing a message_id with kept ones
+    if msg_ids_in_kept:
+        for i in range(adjusted - 1, -1, -1):
+            msg = messages[i]
+            if msg.get("role") == "assistant":
+                mid = msg.get("message_id") or msg.get("id")
+                if mid and mid in msg_ids_in_kept:
+                    adjusted = i
+
+    return adjusted
 
 
 def _serialize_conversation_for_compact(messages: list[dict[str, Any]]) -> str:

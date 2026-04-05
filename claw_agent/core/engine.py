@@ -16,6 +16,7 @@ Features:
 """
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import os
 import random
@@ -133,11 +134,13 @@ class Engine:
         event_queue: Optional[asyncio.Queue[str]] = None,
         hook_manager: Optional[HookManager] = None,
         memory: Optional[Any] = None,  # claw_agent.memory.Memory
+        session_persistence: Optional[Any] = None,  # claw_agent.memory.SessionPersistence
     ):
         self.config = config
         self.registry = registry or ToolRegistry()
         self.permission_ctx = permission_ctx or PermissionContext()
         self.memory = memory
+        self.session_persistence = session_persistence
         self.messages: list[Message] = []
 
         # Abort flag — cooperative cancellation (maps to AbortController in QueryEngine.ts)
@@ -175,6 +178,17 @@ class Engine:
         if tools:
             for t in tools:
                 self.registry.register(t)
+
+        # --- Register session persistence hook ---
+        # Maps to: registerPostSamplingHook(extractSessionMemory) in sessionMemory.ts
+        if self.session_persistence is not None:
+            from claw_agent.memory.session_persistence import create_session_persistence_hook
+            self.hook_manager.register(
+                HookEvent.POST_SAMPLING,
+                create_session_persistence_hook(self.session_persistence, config),
+                name="session_persistence",
+                fire_and_forget=True,
+            )
 
     # ────────────────────────────────────────────────────────────
     # Background task lifecycle — called by coordinator tools
@@ -420,14 +434,44 @@ class Engine:
                 model=self.config.effective_model,
                 provider=self._provider,
                 tracking=self._compact_tracking,
+                session_persistence=self.session_persistence,
             )
             if was_compacted:
-                # Replace conversation history
+                # Replace conversation history with compacted messages.
+                # SM compact returns [summary, ...recent_messages] — we must
+                # preserve ALL of them, not just the summary.
                 system_prompt = self._build_system_prompt()
-                self.messages = [
-                    SystemMessage(system_prompt),
-                    UserMessage(new_messages[0]["content"]),
-                ]
+                rebuilt: list[Message] = [SystemMessage(system_prompt)]
+                for nm in new_messages:
+                    role = nm.get("role", "user")
+                    if role == "user":
+                        rebuilt.append(UserMessage(nm["content"]))
+                    elif role == "assistant":
+                        tool_calls_raw = nm.get("tool_calls", [])
+                        tc_list = []
+                        for tc in tool_calls_raw:
+                            if isinstance(tc, dict):
+                                fn = tc.get("function", {})
+                                args = fn.get("arguments", "{}")
+                                tc_list.append(ToolCall(
+                                    id=tc.get("id", ""),
+                                    name=fn.get("name", ""),
+                                    arguments=json.loads(args) if isinstance(args, str) else args,
+                                ))
+                            else:
+                                tc_list.append(tc)
+                        rebuilt.append(AssistantMessage(
+                            content=nm.get("content"),
+                            tool_calls=tc_list,
+                        ))
+                    elif role == "tool":
+                        rebuilt.append(ToolResult(
+                            tool_call_id=nm.get("tool_call_id", ""),
+                            content=nm.get("content", ""),
+                        ))
+                    else:
+                        rebuilt.append(UserMessage(nm.get("content", "")))
+                self.messages = rebuilt
                 yield {
                     "type": "compact",
                     "content": "Conversation compacted to stay within context window.",
@@ -465,6 +509,14 @@ class Engine:
 
             if response.thinking:
                 yield {"type": "thinking", "content": response.thinking}
+
+            # --- POST_SAMPLING hook (session persistence fires here) ---
+            # Maps to: executePostSamplingHooks() in postSamplingHooks.ts
+            post_sampling_ctx = HookContext(
+                messages=list(self.messages),
+                engine=self,
+            )
+            await self.hook_manager.execute(HookEvent.POST_SAMPLING, post_sampling_ctx)
 
             # --- 4. Build internal message ---
             assistant_msg = AssistantMessage(
@@ -640,6 +692,8 @@ class Engine:
         self._compact_tracking = CompactTrackingState()
         self.total_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         self._bg_tasks.clear()
+        if self.session_persistence:
+            self.session_persistence.reset()
 
     def feed_event(self, event_msg: str):
         """Manually push an event into the conversation / 丢入异步事件"""

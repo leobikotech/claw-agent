@@ -53,6 +53,11 @@ class HookEvent(str, Enum):
     POST_TOOL_USE = "post_tool_use"     # After tool execution
     POST_TOOL_FAILURE = "post_tool_failure"  # After tool failure
 
+    # Post-sampling / LLM 响应后
+    POST_SAMPLING = "post_sampling"     # After each LLM response (before tool exec decision)
+                                        # This is where session persistence extraction triggers.
+                                        # Maps to: registerPostSamplingHook() in postSamplingHooks.ts
+
     # Turn lifecycle / 轮次生命周期
     STOP = "stop"                       # LLM produced no tool calls (turn end)
                                         # This is where autoDream fires.
