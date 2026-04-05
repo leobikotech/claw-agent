@@ -18,6 +18,7 @@ from claw_agent.config import Config
 from claw_agent.core.engine import Engine
 from claw_agent.core.hooks import HookContext, HookEvent, HookManager
 from claw_agent.integrations.mcp_client import MCPManager, MCPServerConfig
+from claw_agent.tools.mcp_resources import ListMcpResourcesTool, ReadMcpResourceTool
 from claw_agent.providers import PROVIDER_PRESETS
 from claw_agent.tools import get_default_tools
 from claw_agent.memory.memory import Memory
@@ -30,12 +31,43 @@ from claw_agent.memory.dream import (
 console = Console()
 
 
-def _detect_config() -> Config:
+def _parse_args():
+    """Parse CLI arguments / 解析命令行参数"""
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="claw",
+        description="Claw Agent — Python Agent Framework",
+    )
+    parser.add_argument(
+        "--language", type=str, default=None,
+        help="Preferred language for agent responses (e.g. japanese, chinese, spanish). "
+             "Also reads from CLAW_LANGUAGE env var.",
+    )
+    parser.add_argument(
+        "--provider", type=str, default=None,
+        help="LLM provider override (openai, anthropic, gemini, minimax, etc.)",
+    )
+    parser.add_argument(
+        "--model", type=str, default=None,
+        help="Model override (e.g. gpt-4o, claude-sonnet-4-20250514)",
+    )
+    return parser.parse_args()
+
+
+def _detect_config(args=None) -> Config:
     """Auto-detect provider from environment variables / 从环境变量自动检测 Provider
     User only needs to set ONE env var (e.g. MINIMAX_API_KEY) — we figure out the rest.
     """
     # Check each provider's env var in priority order
     priority = ["minimax", "openai", "anthropic", "gemini", "kimi", "deepseek", "qwen"]
+
+    # If provider explicitly specified via CLI
+    if args and args.provider:
+        preset = PROVIDER_PRESETS.get(args.provider.lower())
+        if preset:
+            key = os.environ.get(preset["env_key"], "")
+            return Config(provider=args.provider.lower(), api_key=key)
+
     for name in priority:
         preset = PROVIDER_PRESETS[name]
         env_key = preset["env_key"]
@@ -59,7 +91,14 @@ def _detect_config() -> Config:
 
 async def repl():
     """Interactive REPL / 交互式会话"""
-    config = _detect_config()
+    args = _parse_args()
+    config = _detect_config(args)
+
+    # Apply CLI overrides
+    if args.language:
+        config.language = args.language
+    if args.model:
+        config.model = args.model
 
     # Initialize tools
     tools = get_default_tools()
@@ -103,21 +142,34 @@ async def repl():
         servers = [MCPServerConfig(**s) for s in config.mcp_servers]
         await mcp_manager.connect_all(servers)
 
+        # --- P0 fix: inject MCP server instructions into system prompt ---
+        # Maps to: server instructions injection in client.ts
+        mcp_instructions = mcp_manager.build_instructions_prompt()
+        if mcp_instructions:
+            existing = config.append_system_prompt or ""
+            config.append_system_prompt = existing + "\n\n" + mcp_instructions if existing else mcp_instructions
+
     # Create engine with hook manager
     engine = Engine(config=config, tools=tools, memory=memory, hook_manager=hook_manager)
 
-    # Discover MCP tools
+    # Discover MCP tools + register MCP resource tools
     if mcp_manager:
         await mcp_manager.discover_tools_async(engine.registry)
+        # --- P1 fix: register MCP resource tools ---
+        # Maps to: ListMcpResourcesTool + ReadMcpResourceTool in src/tools/
+        engine.registry.register(ListMcpResourcesTool(mcp_manager=mcp_manager))
+        engine.registry.register(ReadMcpResourceTool(mcp_manager=mcp_manager))
 
     tool_count = len(engine.registry.all())
 
     # Banner
+    lang_display = f"Language: [bold]{config.language}[/bold] | " if config.language else ""
     console.print(Panel.fit(
         f"[bold cyan]Claw Agent[/bold cyan] — Python Agent Framework\n"
         f"[dim]Provider: [bold]{config.provider}[/bold] | "
         f"Model: [bold]{config.effective_model}[/bold] | "
         f"Tools: {tool_count} | "
+        f"{lang_display}"
         f"Memory: {'on' if config.feature('MEMORY') else 'off'} | "
         f"Dream: {'on' if config.feature('DREAM') and dream_engine else 'off'} | "
         f"Hooks: {sum(len(v) for v in hook_manager.list_hooks().values())}[/dim]",

@@ -228,6 +228,10 @@ class Engine:
         # Auto-discover CLAW.md instruction files (maps to getMemoryFiles + getClaudeMds in claudemd.ts)
         builder.load_instructions()
 
+        # Language preference (maps to getLanguageSection(settings.language) in prompts.ts)
+        if self.config.language:
+            builder.set_language(self.config.language)
+
         # Add system prompt overrides/additions from Config
         if self.config.system_prompt:
             builder.set_domain_instructions(self.config.system_prompt)

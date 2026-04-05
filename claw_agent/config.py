@@ -53,6 +53,14 @@ class Config:
     system_prompt: Optional[str] = None  # Custom override
     append_system_prompt: Optional[str] = None  # Appended to default
 
+    # --- Language preference (maps to settings.language in prompts.ts) ---
+    # Controls the language the agent uses to communicate with the user.
+    # Internal prompts, tool calls, and code remain unaffected.
+    # P2: also reads from CLAW_LANGUAGE env var as fallback.
+    language: Optional[str] = field(
+        default_factory=lambda: os.environ.get("CLAW_LANGUAGE")
+    )  # e.g. "japanese", "chinese", "spanish"
+
     def feature(self, name: str) -> bool:
         """Check if a feature is enabled / 检查功能是否启用"""
         return self.features.get(name, False)
