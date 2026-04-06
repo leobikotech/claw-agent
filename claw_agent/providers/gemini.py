@@ -1,6 +1,5 @@
 """
 Google Gemini Provider — Gemini API
-Maps to: src/services/api/ (Gemini path)
 
 Uses the google-genai SDK with manual tool handling.
 使用 google-genai SDK，手动处理工具调用。

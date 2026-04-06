@@ -1,6 +1,4 @@
 """
-Anthropic Provider — Claude API
-Maps to: src/services/api/ (Anthropic path)
 
 Handles the Anthropic-specific message format and tool_use blocks.
 处理 Anthropic 特有的消息格式和 tool_use 内容块。

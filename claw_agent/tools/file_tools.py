@@ -1,6 +1,5 @@
 """
 File Tools — 文件操作工具集
-Maps to: src/tools/FileReadTool, FileWriteTool, FileEditTool
 
 Read, write, and edit files with full prompt translations matching the original.
 """
@@ -44,7 +43,6 @@ Usage:
 
 
 class FileReadTool(Tool):
-    """Maps to: src/tools/FileReadTool/FileReadTool.ts"""
     name = FILE_READ_TOOL_NAME
     description = _get_file_read_prompt()
     risk_level = RiskLevel.LOW
@@ -132,7 +130,6 @@ Usage:
 
 
 class FileEditTool(Tool):
-    """Maps to: src/tools/FileEditTool/FileEditTool.ts"""
     name = FILE_EDIT_TOOL_NAME
     description = _get_file_edit_prompt()
     risk_level = RiskLevel.MEDIUM
@@ -219,7 +216,6 @@ Usage:
 
 
 class FileWriteTool(Tool):
-    """Maps to: src/tools/FileWriteTool/FileWriteTool.ts"""
     name = FILE_WRITE_TOOL_NAME
     description = _get_file_write_prompt()
     risk_level = RiskLevel.MEDIUM

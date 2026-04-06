@@ -1,6 +1,5 @@
 """
 GrepTool — 内容搜索工具
-Maps to: src/tools/GrepTool/GrepTool.ts + prompt.ts (578 lines)
 
 Powerful search tool using regex, with output modes and file filtering.
 Tries rg (ripgrep), then falls back to grep.
@@ -44,7 +43,6 @@ def _find_search_cmd() -> str:
 
 
 class GrepTool(Tool):
-    """Maps to: src/tools/GrepTool/GrepTool.ts"""
     name = GREP_TOOL_NAME
     description = _get_grep_prompt()
     risk_level = RiskLevel.LOW

@@ -1,6 +1,5 @@
 """
 MCP Resource Tools — MCP 资源工具
-Maps to: src/tools/ListMcpResourcesTool/ + src/tools/ReadMcpResourceTool/
 
 Tools for browsing and reading resources exposed by MCP servers.
 MCP 资源浏览和读取工具。
@@ -14,7 +13,6 @@ from claw_agent.core.tool import Tool, ToolContext, RiskLevel
 
 class ListMcpResourcesTool(Tool):
     """List resources from connected MCP servers / 列出 MCP 服务器资源
-    Maps to: ListMcpResourcesTool in src/tools/ListMcpResourcesTool/
 
     Returns a JSON list of resources with uri, name, mimeType, description, and server.
     """
@@ -68,7 +66,6 @@ class ListMcpResourcesTool(Tool):
 
 class ReadMcpResourceTool(Tool):
     """Read a specific resource from an MCP server / 读取 MCP 服务器资源
-    Maps to: ReadMcpResourceTool in src/tools/ReadMcpResourceTool/
 
     Reads the content of a resource identified by its URI and server name.
     """

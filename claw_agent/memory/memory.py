@@ -1,6 +1,5 @@
 """
 Memory — 文件级持久化记忆
-Maps to: src/memdir/memdir.ts, memoryScan.ts, findRelevantMemories.ts
 
 A file-based memory system with:
   - MEMORY.md index + topic files
@@ -22,13 +21,12 @@ logger = logging.getLogger(__name__)
 MEMORY_FILE = "MEMORY.md"          # Index file
 MAX_INDEX_LINES = 200              # Maps to MAX_ENTRYPOINT_LINES
 MAX_INDEX_BYTES = 25_000           # Maps to MAX_ENTRYPOINT_BYTES
-MAX_MEMORY_FILES = 200             # Maps to MAX_MEMORY_FILES in memoryScan.ts
+MAX_MEMORY_FILES = 200
 FRONTMATTER_MAX_LINES = 30
 MAX_RELEVANT_MEMORIES = 5          # From findRelevantMemories.ts
 
 
 # ────────────────────────────────────────────────────────────────
-# Memory header — maps to MemoryHeader in memoryScan.ts
 # ────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -49,7 +47,6 @@ class MemoryEntry:
 
 
 # ────────────────────────────────────────────────────────────────
-# Frontmatter parser — maps to utils/frontmatterParser.ts
 # ────────────────────────────────────────────────────────────────
 
 def _parse_frontmatter(content: str) -> dict[str, str]:
@@ -67,12 +64,10 @@ def _parse_frontmatter(content: str) -> dict[str, str]:
 
 
 # ────────────────────────────────────────────────────────────────
-# Memory scanning — maps to memoryScan.ts scanMemoryFiles()
 # ────────────────────────────────────────────────────────────────
 
 def scan_memory_files(memory_dir: str) -> list[MemoryHeader]:
     """Scan memory directory for .md files, read frontmatter, return headers.
-    Maps to: scanMemoryFiles() in memoryScan.ts
 
     Sorted newest-first, capped at MAX_MEMORY_FILES.
     """
@@ -110,7 +105,6 @@ def scan_memory_files(memory_dir: str) -> list[MemoryHeader]:
 
 def format_memory_manifest(memories: list[MemoryHeader]) -> str:
     """Format memory headers as text manifest for LLM selection.
-    Maps to: formatMemoryManifest() in memoryScan.ts
     """
     lines = []
     for m in memories:
@@ -123,7 +117,6 @@ def format_memory_manifest(memories: list[MemoryHeader]) -> str:
 
 
 # ────────────────────────────────────────────────────────────────
-# Relevant memory selection — maps to findRelevantMemories.ts
 # ────────────────────────────────────────────────────────────────
 
 # The system prompt for the memory selection side-query
@@ -144,7 +137,6 @@ async def find_relevant_memories(
     already_surfaced: Optional[set[str]] = None,
 ) -> list[dict[str, Any]]:
     """Find memory files relevant to a query using LLM selection.
-    Maps to: findRelevantMemories() in findRelevantMemories.ts
 
     Uses a side LLM call to select the most relevant memories from the
     manifest. Returns list of {"path": ..., "mtime_ms": ...} dicts.
@@ -204,7 +196,6 @@ async def find_relevant_memories(
 
 class Memory:
     """File-based persistent memory / 基于文件的持久化记忆
-    Maps to: memdir.ts buildMemoryPrompt, loadMemoryPrompt
 
     Structure:
         memory_dir/
@@ -224,7 +215,6 @@ class Memory:
 
     def load_index(self) -> str:
         """Load MEMORY.md index with truncation.
-        Maps to: truncateEntrypointContent() in memdir.ts
         """
         if not os.path.exists(self.index_path):
             return ""
@@ -244,7 +234,6 @@ class Memory:
 
     def save(self, title: str, content: str, filename: Optional[str] = None) -> str:
         """Save a memory (topic file + index entry).
-        Maps to: two-step save in buildMemoryLines (write file → update index)
         """
         # Generate filename from title if not provided
         if not filename:
@@ -264,7 +253,6 @@ class Memory:
 
     def search(self, query: str) -> list[tuple[str, str]]:
         """Search all memory files for a query.
-        Maps to: GrepTool on memory_dir in buildSearchingPastContextSection
         """
         results = []
         query_lower = query.lower()
@@ -299,7 +287,6 @@ class Memory:
 
     def scan(self) -> list[MemoryHeader]:
         """Scan all memory files and return headers.
-        Maps to: scanMemoryFiles() in memoryScan.ts
         """
         return scan_memory_files(self.memory_dir)
 
@@ -311,7 +298,6 @@ class Memory:
         already_surfaced: Optional[set[str]] = None,
     ) -> list[dict[str, Any]]:
         """Find memories relevant to a query using LLM selection.
-        Maps to: findRelevantMemories() in findRelevantMemories.ts
         """
         return await find_relevant_memories(
             query=query,
@@ -333,7 +319,6 @@ class Memory:
 
     def build_prompt(self) -> str:
         """Build memory prompt for system prompt injection.
-        Maps to: buildMemoryPrompt() in memdir.ts
         """
         index = self.load_index()
         return f"""# Persistent Memory

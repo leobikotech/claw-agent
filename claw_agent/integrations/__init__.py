@@ -1,6 +1,5 @@
 """
 Integrations — 外部集成
-Maps to: MCP client and other external service connectors.
 
 External service integrations that extend agent capabilities.
 扩展智能体能力的外部服务集成。

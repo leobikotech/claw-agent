@@ -1,11 +1,10 @@
 """
 Dream — 后台记忆巩固引擎
-Maps to: src/services/autoDream/autoDream.ts, consolidationPrompt.ts, consolidationLock.ts
 
 Background memory consolidation with three-gate trigger + four-phase pipeline.
 三门触发 + 四阶段记忆整合的后台巩固引擎。
 
-Gate order (cheapest first) — 与原版一致:
+Gate order (cheapest first):
   1. Time: hours since lastConsolidatedAt >= minHours  (one stat)
   2. Sessions: session_count >= minSessions
   3. Lock: no other process mid-consolidation (file-based PID lock)
@@ -26,17 +25,14 @@ logger = logging.getLogger(__name__)
 
 # Scan throttle: when time-gate passes but session-gate doesn't,
 # avoid re-scanning every turn.
-# Maps to: SESSION_SCAN_INTERVAL_MS in autoDream.ts
 SESSION_SCAN_INTERVAL_S = 10 * 60  # 10 minutes
 
 # Stale lock threshold — even if PID is live, reclaim after this.
-# Maps to: HOLDER_STALE_MS in consolidationLock.ts
 LOCK_STALE_S = 60 * 60  # 1 hour
 
 
 @dataclass
 class DreamConfig:
-    """Maps to: AutoDreamConfig in autoDream.ts"""
     min_hours: float = 24.0     # Time gate threshold
     min_sessions: int = 5       # Session gate threshold
 
@@ -50,7 +46,6 @@ class DreamState:
 
 # ────────────────────────────────────────────────────────────────
 # File-based cross-process lock
-# Maps to: src/services/autoDream/consolidationLock.ts
 # ────────────────────────────────────────────────────────────────
 
 LOCK_FILE = ".consolidate-lock"
@@ -67,7 +62,6 @@ def _is_pid_alive(pid: int) -> bool:
 
 class ConsolidationLock:
     """File-based cross-process consolidation lock / 跨进程巩固锁
-    Maps to: consolidationLock.ts
 
     Lock file body = holder PID
     Lock file mtime = lastConsolidatedAt
@@ -85,7 +79,6 @@ class ConsolidationLock:
     def read_last_consolidated_at(self) -> float:
         """mtime of the lock file = lastConsolidatedAt. 0 if absent.
         Per-turn cost: one stat.
-        Maps to: readLastConsolidatedAt() in consolidationLock.ts
         """
         try:
             return os.stat(self.lock_path).st_mtime
@@ -94,7 +87,6 @@ class ConsolidationLock:
 
     def try_acquire(self) -> Optional[float]:
         """Acquire the lock. Returns pre-acquire mtime (for rollback), or None if blocked.
-        Maps to: tryAcquireConsolidationLock() in consolidationLock.ts
         """
         prior_mtime: Optional[float] = None
         holder_pid: Optional[int] = None
@@ -140,7 +132,6 @@ class ConsolidationLock:
 
     def rollback(self, prior_mtime: float):
         """Rewind mtime to pre-acquire after a failed consolidation.
-        Maps to: rollbackConsolidationLock() in consolidationLock.ts
         """
         try:
             if prior_mtime == 0.0:
@@ -167,12 +158,10 @@ class ConsolidationLock:
 
 # ────────────────────────────────────────────────────────────────
 # Consolidation Prompt
-# Maps to: src/services/autoDream/consolidationPrompt.ts
 # ────────────────────────────────────────────────────────────────
 
 def build_consolidation_prompt(memory_dir: str, memory_file: str = "MEMORY.md") -> str:
     """Build the four-phase consolidation prompt / 构建四阶段巩固提示词
-    Maps to: buildConsolidationPrompt() in consolidationPrompt.ts
 
     Preserves ALL phases from the original:
     1. Orient — read existing memory index
@@ -236,7 +225,6 @@ Return a brief summary of what you consolidated, updated, or pruned. If nothing 
 
 # ────────────────────────────────────────────────────────────────
 # DreamEngine — 后台记忆巩固引擎
-# Maps to: initAutoDream() + executeAutoDream() in autoDream.ts
 # ────────────────────────────────────────────────────────────────
 
 class DreamEngine:
@@ -289,7 +277,6 @@ class DreamEngine:
 
     def should_dream(self) -> tuple[bool, str]:
         """Three-gate check / 三门触发检查
-        Maps to: Gate order in autoDream.ts (cheapest first)
         """
         # Gate 1: Time
         last_at = self.lock.read_last_consolidated_at()
@@ -320,7 +307,6 @@ class DreamEngine:
 
     async def run(self) -> str:
         """Execute the dream consolidation / 执行记忆巩固
-        Maps to: executeAutoDream() in autoDream.ts
 
         Acquires file lock → spins up lightweight Engine → runs consolidation → releases lock
         """
@@ -377,7 +363,6 @@ class DreamEngine:
     async def run_force(self) -> str:
         """Force-run dream consolidation, bypassing all gates.
         强制执行记忆巩固，跳过所有门控。
-        Maps to: manual /dream command in commands/dream.ts
         """
         prior_mtime = self.lock.try_acquire()
         if prior_mtime is None:
@@ -421,14 +406,12 @@ class DreamEngine:
 
 # ────────────────────────────────────────────────────────────────
 # Hook factories — create HookCallbacks for registration
-# Maps to: executeAutoDream() in stopHooks.ts:155
 # ────────────────────────────────────────────────────────────────
 
 def create_dream_hook(dream_engine: DreamEngine):
     """Create a fire-and-forget HookCallback that triggers dream consolidation.
     创建一个触发记忆巩固的后台钩子回调。
 
-    Maps to: `void executeAutoDream(stopHookContext, ...)` in stopHooks.ts:155
     Registered as STOP event hook with fire_and_forget=True.
 
     The three-gate check (time, sessions, lock) inside DreamEngine.run()
@@ -451,7 +434,6 @@ def create_session_record_hook(dream_engine: DreamEngine):
     """Create a SESSION_END hook that increments the session counter.
     创建一个 SESSION_END 钩子，递增会话计数器。
 
-    Maps to: session counting logic that feeds Gate 2 (min_sessions)
     in autoDream.ts. Original tracks via listSessionsTouchedSince();
     we simplify to an explicit counter.
     """

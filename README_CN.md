@@ -1,9 +1,9 @@
 # Claw Agent — 供应商无关的 Python 智能体框架
 
-> 逆向自 **Claude Code** 的闭源架构，用干净可读的 Python 重建。
+> 现代 CLI 智能体框架，用干净可读的 Python 构建。
 
 <div align="center">
-  <img src="https://img.shields.io/badge/架构-Claude_Code-blue" alt="Architecture">
+  <img src="https://img.shields.io/badge/架构-Agent_Loop-blue" alt="Architecture">
   <img src="https://img.shields.io/badge/Python-3.11+-yellow" alt="Python">
   <img src="https://img.shields.io/badge/供应商-无关-success" alt="Provider Agnostic">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
@@ -15,7 +15,7 @@
 
 ## 为什么选择 Claw Agent？
 
-大多数智能体框架要么过于玩具化、要么过度封装。本项目提取了 Anthropic Claude Code 的架构精髓，用**可读、可扩展的 Python** 重建——每个核心模块不超过 200 行。
+大多数智能体框架要么过于玩具化、要么过度封装。本项目借鉴现代 CLI 智能体的最佳设计实践，用**可读、可扩展的 Python** 重建——每个核心模块不超过 200 行。
 
 - **供应商无关** — 同一套工作流无缝驱动 OpenAI、Claude、Gemini、DeepSeek、MiniMax、Kimi、Qwen
 - **工业级** — 异步多代理协调、安全沙箱、自动压缩、持久化记忆
@@ -28,7 +28,7 @@
 ## 核心特性
 
 ### 4 层上下文压缩管道 (4-Layer Compression)
-对标 Claude Code 架构的零成本上下文截断与内存管理：
+零成本上下文截断与内存管理：
 1. **Snip Compact**: 截断最早的非关键上下文。
 2. **Micro Compact**: 截断超大工具返回结果（>2000 tokens）以节省带宽。
 3. **Auto Compact**: 当上下文接近窗口上限时，自动调用大模型生成摘要替换完整历史。

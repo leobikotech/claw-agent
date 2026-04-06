@@ -1,9 +1,9 @@
 # Claw Agent — Provider-Agnostic Python Agent Framework
 
-> Reverse-engineered from **Claude Code's** closed-source architecture, rebuilt in clean, readable Python.
+> A modern CLI agent framework built in clean, readable Python.
 
 <div align="center">
-  <img src="https://img.shields.io/badge/Architecture-Claude_Code-blue" alt="Architecture">
+  <img src="https://img.shields.io/badge/Architecture-Agent_Loop-blue" alt="Architecture">
   <img src="https://img.shields.io/badge/Python-3.11+-yellow" alt="Python">
   <img src="https://img.shields.io/badge/Provider-Agnostic-success" alt="Provider Agnostic">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
@@ -15,7 +15,7 @@
 
 ## Why Claw Agent?
 
-Most agent frameworks are either too toy-like or over-encapsulated. This project extracts the architectural essence of Anthropic's Claude Code and rebuilds it as **readable, extensible Python** — every core module under 200 lines.
+Most agent frameworks are either too toy-like or over-encapsulated. This project draws on best practices from modern CLI agent design and rebuilds them as **readable, extensible Python** — every core module under 200 lines.
 
 - **Provider Agnostic** — Same workflow across OpenAI, Claude, Gemini, DeepSeek, MiniMax, Kimi, Qwen
 - **Industrial-Grade** — Async multi-agent coordination, security sandbox, auto-compact, persistent memory
@@ -28,7 +28,7 @@ Most agent frameworks are either too toy-like or over-encapsulated. This project
 ## Core Features
 
 ### 4-Layer Compression Pipeline
-Zero-cost memory management mirroring Claude Code's tiered approach:
+Zero-cost memory management using a tiered approach:
 1. **Snip Compact**: Silently drops oldest non-essential context.
 2. **Micro Compact**: Truncates oversized tool results (>2000 tokens) to save bandwidth.
 3. **Auto Compact**: Generates synthetic LLM summaries when context nears window limits.

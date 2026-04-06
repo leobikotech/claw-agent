@@ -1,6 +1,5 @@
 """
 Permissions — 权限门控系统
-Maps to: src/Tool.ts (ToolPermissionContext), tools/BashTool/bashPermissions.ts, bashSecurity.ts
 
 Three-tier permission gating: allow, ask (interactive confirm), deny.
 Comprehensive dangerous command detection and protected path enforcement.
@@ -16,14 +15,12 @@ from claw_agent.core.tool import Tool, RiskLevel, PermissionCheck
 
 
 class PermissionMode(str, Enum):
-    """Maps to: PermissionMode in types/permissions.ts"""
     DEFAULT = "default"  # Interactive confirmation
     AUTO = "auto"        # Auto-approve non-destructive
     BYPASS = "bypass"    # Allow everything (dangerous — for trusted automation only)
 
 
 # ────────────────────────────────────────────────────────────────
-# Dangerous command patterns — comprehensive (maps to bashSecurity.ts)
 # ────────────────────────────────────────────────────────────────
 
 # Category 1: System-destructive commands
@@ -90,7 +87,6 @@ _DANGEROUS_REGEXES = [
 
 # ────────────────────────────────────────────────────────────────
 # Protected files — files that should never be written to
-# Maps to: bashPermissions.ts protected path logic
 # ────────────────────────────────────────────────────────────────
 
 PROTECTED_PATHS = {
@@ -109,12 +105,10 @@ PROTECTED_PATHS = {
 @dataclass
 class PermissionContext:
     """Runtime permission state / 运行时权限状态
-    Maps to: ToolPermissionContext in Tool.ts
     """
     mode: PermissionMode = PermissionMode.DEFAULT
     allow_rules: dict[str, list[str]] = field(default_factory=dict)
     deny_rules: dict[str, list[str]] = field(default_factory=dict)
-    # Tracks consecutive denials (maps to denialTracking.ts)
     denial_count: int = 0
 
 
@@ -124,7 +118,6 @@ def check_permission(
     context: PermissionContext,
 ) -> PermissionCheck:
     """Check if a tool invocation is permitted / 检查工具调用是否被允许
-    Maps to: permissions.ts canUseTool flow
     """
     # Step 1: Blanket deny rules
     if tool.name in context.deny_rules:
@@ -153,7 +146,6 @@ def check_permission(
 
 def is_dangerous_command(command: str) -> bool:
     """Comprehensive check if a shell command matches dangerous patterns.
-    Maps to: bashSecurity.ts dangerous command detector
 
     Checks:
     1. Exact match against system-destructive commands
@@ -177,7 +169,6 @@ def is_dangerous_command(command: str) -> bool:
 
 def is_protected_file(path: str) -> bool:
     """Check if a file path is in the protected list.
-    Maps to: bashPermissions.ts protected path logic
     """
     basename = os.path.basename(path)
     for protected in PROTECTED_PATHS:

@@ -1,6 +1,5 @@
 """
 GlobTool — 文件模式搜索工具
-Maps to: src/tools/GlobTool/GlobTool.ts + prompt.ts
 
 Fast file pattern matching using glob patterns.
 """
@@ -27,7 +26,6 @@ def _get_glob_prompt() -> str:
 
 
 class GlobTool(Tool):
-    """Maps to: src/tools/GlobTool/GlobTool.ts"""
     name = GLOB_TOOL_NAME
     description = _get_glob_prompt()
     risk_level = RiskLevel.LOW

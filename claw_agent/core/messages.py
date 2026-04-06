@@ -1,6 +1,5 @@
 """
 Messages — 消息类型定义
-Maps to: src/types/message.ts, src/Tool.ts (ToolResult)
 
 Standardized message format compatible with OpenAI-style chat completions API.
 标准化消息格式，兼容 OpenAI 风格的 Chat Completions API (MiniMax)。
@@ -51,7 +50,6 @@ class SystemMessage:
 @dataclass
 class ToolCall:
     """A single tool invocation from the LLM / LLM 发起的单次工具调用
-    Maps to: ToolUseBlockParam in Anthropic SDK
     """
     id: str
     name: str
@@ -71,7 +69,6 @@ class ToolCall:
 @dataclass
 class ToolResult:
     """Result returned to the LLM after tool execution / 工具执行后返回给 LLM 的结果
-    Maps to: ToolResultBlockParam, ToolResult<T> in Tool.ts
     """
     tool_call_id: str
     content: str

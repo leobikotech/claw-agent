@@ -1,6 +1,5 @@
 """
 CLI Entry — 命令行交互入口
-Maps to: src/main.tsx → REPL mode
 
 Provider-agnostic REPL: auto-detects provider from env vars.
 Provider 无关的 REPL：从环境变量自动检测 Provider。
@@ -115,7 +114,6 @@ async def repl():
     hook_manager = HookManager()
 
     # Initialize Dream engine + register hooks if enabled
-    # Maps to: initAutoDream() in autoDream.ts + stopHooks.ts:155
     if config.feature("DREAM") and memory:
         dream_engine = DreamEngine(
             memory=memory,
@@ -143,7 +141,6 @@ async def repl():
         await mcp_manager.connect_all(servers)
 
         # --- P0 fix: inject MCP server instructions into system prompt ---
-        # Maps to: server instructions injection in client.ts
         mcp_instructions = mcp_manager.build_instructions_prompt()
         if mcp_instructions:
             existing = config.append_system_prompt or ""
@@ -156,7 +153,6 @@ async def repl():
     if mcp_manager:
         await mcp_manager.discover_tools_async(engine.registry)
         # --- P1 fix: register MCP resource tools ---
-        # Maps to: ListMcpResourcesTool + ReadMcpResourceTool in src/tools/
         engine.registry.register(ListMcpResourcesTool(mcp_manager=mcp_manager))
         engine.registry.register(ReadMcpResourceTool(mcp_manager=mcp_manager))
 
@@ -204,7 +200,6 @@ async def repl():
                 continue
 
             # /dream — manual dream consolidation
-            # Maps to: /dream command in commands/dream/index.ts
             if user_input.strip() == "/dream":
                 if dream_engine:
                     console.print("  [dim]💤 Running dream consolidation...[/dim]")
@@ -215,7 +210,6 @@ async def repl():
                 continue
 
             # /hooks — inspect registered hooks
-            # Maps to: /hooks command in commands/hooks/index.ts
             if user_input.strip() == "/hooks":
                 hooks_info = hook_manager.list_hooks()
                 if not hooks_info:
@@ -257,7 +251,6 @@ async def repl():
                     console.print(f"[red]Error: {event['content']}[/red]")
 
     finally:
-        # --- SESSION_END hooks (maps to executeSessionEndHooks in hooks.ts) ---
         session_end_ctx = HookContext(
             messages=list(engine.messages),
             engine=engine,

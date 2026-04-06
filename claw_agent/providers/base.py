@@ -1,6 +1,5 @@
 """
 Provider Base — LLM Provider 基类与统一响应格式
-Maps to: src/services/api/ (response normalization)
 
 Core abstractions that all providers share.
 所有 Provider 共享的核心抽象。

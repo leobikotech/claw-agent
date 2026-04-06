@@ -1,7 +1,7 @@
 [project]
 name = "claw-agent"
 version = "0.2.0"
-description = "Provider-agnostic Python agent framework inspired by Claude Code architecture"
+description = "Provider-agnostic Python agent framework with industrial-grade context management"
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.30.0",     # OpenAI-compatible APIs (OpenAI, MiniMax, Kimi, DeepSeek, Qwen)

@@ -1,6 +1,5 @@
 """
 Token Estimation — Token 计数估算
-Maps to: src/services/tokenEstimation.ts
 
 Efficient token count estimation without requiring a tokenizer dependency.
 Uses character-based heuristic with corrections for code, CJK, and tool calls.
@@ -22,7 +21,6 @@ CHARS_PER_TOKEN_CODE = 3.5
 # Tool call overhead in tokens (JSON structure, name, etc.)
 TOOL_CALL_OVERHEAD = 50
 
-# Context windows per model family (maps to utils/context.ts getContextWindowForModel)
 MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     # Anthropic
     "claude-sonnet-4-20250514": 200_000,
@@ -57,7 +55,6 @@ DEFAULT_CONTEXT_WINDOW = 128_000
 
 def get_context_window(model: str) -> int:
     """Get context window size for a model.
-    Maps to: getContextWindowForModel() in utils/context.ts
     """
     # Try exact match first
     if model in MODEL_CONTEXT_WINDOWS:
@@ -91,7 +88,6 @@ def estimate_tokens_text(text: str) -> int:
 
 def estimate_tokens_message(message: dict[str, Any]) -> int:
     """Estimate token count for a single message (OpenAI format).
-    Maps to: tokenCountWithEstimation logic in tokenEstimation.ts
     """
     tokens = 4  # message overhead (role, etc.)
 
@@ -128,6 +124,5 @@ def estimate_tokens_message(message: dict[str, Any]) -> int:
 
 def estimate_tokens_messages(messages: list[dict[str, Any]]) -> int:
     """Estimate total token count for a list of messages.
-    Maps to: tokenCountWithEstimation() in tokenEstimation.ts
     """
     return sum(estimate_tokens_message(m) for m in messages)

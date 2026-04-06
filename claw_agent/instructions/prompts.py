@@ -1,6 +1,5 @@
 """
 Prompt Builder — 可插拔的系统提示词构建器
-Maps to: src/constants/prompts.ts & cyberRiskInstruction.ts
 
 Modular and highly scalable prompt generation.
 模块化且高度可扩展的提示词生成器。
@@ -31,7 +30,6 @@ INTRO_SECTION = """You are an interactive agent that helps users with software e
 
 # ────────────────────────────────────────────────────────────────
 # Section 2: Cyber Risk — CYBER_RISK_INSTRUCTION
-# Maps to: src/constants/cyberRiskInstruction.ts
 # ────────────────────────────────────────────────────────────────
 
 CYBER_RISK = """IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.
@@ -51,7 +49,6 @@ SYSTEM_SECTION = """# System
 
 # ────────────────────────────────────────────────────────────────
 # Section 4: Doing Tasks — getSimpleDoingTasksSection()
-# Maps to: the core task execution guidance in prompts.ts
 # ────────────────────────────────────────────────────────────────
 
 DOING_TASKS = """# Doing tasks
@@ -69,7 +66,6 @@ DOING_TASKS = """# Doing tasks
 
 # ────────────────────────────────────────────────────────────────
 # Section 5: Actions Safety — getActionsSection()
-# Maps to: the full getActionsSection() in prompts.ts
 # ────────────────────────────────────────────────────────────────
 
 ACTIONS_SECTION = """# Executing actions with care
@@ -86,7 +82,6 @@ When you encounter an obstacle, do not use destructive actions as a shortcut to 
 
 # ────────────────────────────────────────────────────────────────
 # Section 6: Tool Usage — getUsingYourToolsSection()
-# Maps to: the full tool usage guidance in prompts.ts
 # ────────────────────────────────────────────────────────────────
 
 TOOL_USAGE = """# Using your tools
@@ -111,7 +106,6 @@ TONE_STYLE = """# Tone and style
 
 # ────────────────────────────────────────────────────────────────
 # Section 8: Output Efficiency — getOutputEfficiencySection()
-# Maps to: the full output-efficiency section in prompts.ts
 # ────────────────────────────────────────────────────────────────
 
 OUTPUT_STYLE = """# Output efficiency
@@ -144,7 +138,6 @@ def _detect_git() -> bool:
 
 class PromptBuilder:
     """Builder for assembling customized prompts / 提示词组装器
-    Maps to: getSystemPrompt() assembly order in prompts.ts
     """
 
     def __init__(self, cwd: str):
@@ -174,14 +167,12 @@ class PromptBuilder:
 
     def set_language(self, lang: str) -> "PromptBuilder":
         """Set preferred response language / 设置首选响应语言
-        Maps to: getLanguageSection() in prompts.ts
         """
         self.language = lang
         return self
 
     def load_instructions(self, cwd: Optional[str] = None) -> "PromptBuilder":
         """Discover and load CLAW.md instruction files / 发现并加载 CLAW.md 指令文件
-        Maps to: getMemoryFiles() + getClaudeMds() in claudemd.ts
 
         Searches for CLAW.md, .claw/CLAW.md, .claw/rules/*.md, and
         CLAW.local.md from CWD upward to root, plus ~/.claw/ for
@@ -198,7 +189,6 @@ class PromptBuilder:
 
     def _get_env_info(self) -> str:
         """Environment injection / 环境信息注入
-        Maps to: computeSimpleEnvInfo() in prompts.ts
         """
         is_git = _detect_git()
         shell = os.environ.get("SHELL", "unknown")

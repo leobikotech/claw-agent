@@ -1,9 +1,8 @@
 """
 Parallel Tool Executor — 并行工具执行器
-Maps to: StreamingToolExecutor in src/tools/StreamingToolExecutor.ts
 
 Execute multiple tool calls concurrently when the LLM returns a batch.
-The original Claude Code starts tool execution while still streaming the
+Production agent systems start tool execution while still streaming the
 LLM response; our simplified version executes all tool calls in parallel
 after the response is complete — still a major speedup over sequential.
 
@@ -35,7 +34,6 @@ async def execute_tools_parallel(
     permission_ctx: Any,      # PermissionContext
 ) -> list[tuple[ToolCall, ToolResult, list[dict]]]:
     """Execute tool calls concurrently, returning results in order.
-    Maps to: StreamingToolExecutor.getRemainingResults() in the TS source
 
     For each tool call, runs:
       1. PRE_TOOL_USE hook (can block)

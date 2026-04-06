@@ -1,6 +1,5 @@
 """
 Tool — 工具基类 + 注册器 + 装饰器
-Maps to: src/Tool.ts (Tool<Input,Output>, buildTool(), ToolDef)
 
 Core abstraction: schema-driven, permission-gated tools with a registry.
 核心抽象：Schema 驱动、权限门控的工具系统，配合注册器。
@@ -16,14 +15,12 @@ if TYPE_CHECKING:
     from claw_agent.config import Config
 
 
-# --- Risk levels (maps to BashTool security classification) ---
 class RiskLevel(str, Enum):
     LOW = "low"         # Read-only operations / 只读操作
     MEDIUM = "medium"   # File writes, non-destructive / 文件写入
     HIGH = "high"       # Destructive: delete, network, shell / 破坏性操作
 
 
-# --- Permission result (maps to PermissionResult in types/permissions.ts) ---
 @dataclass
 class PermissionCheck:
     allowed: bool
@@ -32,7 +29,6 @@ class PermissionCheck:
 
 class Tool(ABC):
     """Base class for all tools / 所有工具的基类
-    Maps to: Tool<Input, Output> in src/Tool.ts
     """
     name: str = ""
     description: str = ""
@@ -43,20 +39,17 @@ class Tool(ABC):
     @abstractmethod
     def get_parameters(self) -> dict:
         """JSON Schema for input parameters / 输入参数的 JSON Schema
-        Maps to: inputSchema (Zod → JSON Schema)
         """
         ...
 
     @abstractmethod
     async def call(self, arguments: dict[str, Any], context: ToolContext) -> str:
         """Execute the tool / 执行工具
-        Maps to: tool.call(args, context, canUseTool, ...) in Tool.ts
         """
         ...
 
     def check_permissions(self, arguments: dict[str, Any], config: Config) -> PermissionCheck:
         """Check if this tool use is allowed / 检查工具使用权限
-        Maps to: checkPermissions() in Tool.ts
         """
         return PermissionCheck(allowed=True)
 
@@ -75,7 +68,6 @@ class Tool(ABC):
 @dataclass
 class ToolContext:
     """Runtime context passed to tool.call() / 传递给 tool.call() 的运行时上下文
-    Maps to: ToolUseContext in src/Tool.ts
     """
     cwd: str = "."
     config: Optional[Config] = None
@@ -99,10 +91,8 @@ class ToolContext:
         return self.aborted
 
 
-# --- Tool Registry (maps to getAllBaseTools() + getTools() in tools.ts) ---
 class ToolRegistry:
     """Global tool registry / 全局工具注册器
-    Maps to: tools.ts getAllBaseTools(), assembleToolPool()
     """
 
     def __init__(self):
@@ -125,7 +115,6 @@ class ToolRegistry:
 
     def find(self, name: str) -> Optional[Tool]:
         """Find tool by name or alias / 按名称查找工具
-        Maps to: findToolByName() in Tool.ts
         """
         return self._tools.get(name)
 
@@ -134,7 +123,6 @@ class ToolRegistry:
 _default_registry = ToolRegistry()
 
 
-# --- @tool decorator (maps to buildTool() in Tool.ts) ---
 def tool(
     name: str,
     description: str = "",
@@ -144,7 +132,6 @@ def tool(
     registry: Optional[ToolRegistry] = None,
 ):
     """Decorator to create a tool from a function / 装饰器：将函数转为工具
-    Maps to: buildTool(def) in Tool.ts — fills defaults, registers
 
     Usage / 用法:
         @tool("my_tool", description="Does something", parameters={...})

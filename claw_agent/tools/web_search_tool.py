@@ -1,10 +1,9 @@
 """
 WebSearchTool — 网络搜索工具（现代 Agent 核心能力）
-Maps to: src/tools/WebSearchTool/WebSearchTool.ts
 
 Provider-agnostic web search with pluggable backends.
-The original Claude Code uses Anthropic's native web_search_20250305 beta,
-which only works with Claude. This implementation provides the same
+Some agent systems use provider-native web search APIs,
+which are provider-specific. This implementation provides the same
 capability via standard search APIs, making it work with ANY LLM provider.
 
 Supported backends (auto-detected from env vars):
@@ -74,7 +73,7 @@ class SearchResult:
     def format_for_llm(self, max_content_chars: int = 4000) -> str:
         """Format results for LLM consumption / 格式化结果供 LLM 使用
 
-        Follows the original Claude Code pattern:
+        Follows the standard agent pattern:
         - Structured results with titles and URLs
         - Content snippets for context
         - Sources section at the end with markdown hyperlinks
@@ -447,7 +446,6 @@ def auto_detect_backend() -> SearchBackend:
 # WebSearchTool — the tool that LLMs call
 # ────────────────────────────────────────────────────────────────
 
-# Tool prompt — maps to prompt.ts
 def _get_web_search_prompt() -> str:
     current_month_year = datetime.now().strftime("%B %Y")
     return f"""WebSearch — search the web for current information.
@@ -476,13 +474,12 @@ IMPORTANT — Use the correct year in search queries:
 
 class WebSearchTool(Tool):
     """Web Search Tool — 网络搜索工具（现代 Agent 核心能力）
-    Maps to: src/tools/WebSearchTool/WebSearchTool.ts
 
     Provider-agnostic web search with pluggable backends.
-    The original Claude Code uses Anthropic's native web_search beta.
+    Some agent systems use provider-native web search APIs.
     This implementation uses standard search APIs, working with ANY provider.
 
-    原版 Claude Code 使用 Anthropic 原生的 web_search beta。
+    部分智能体系统使用供应商原生的 web_search API。
     本实现使用标准搜索 API，兼容任何 LLM Provider。
 
     Backend auto-detection (via env vars):

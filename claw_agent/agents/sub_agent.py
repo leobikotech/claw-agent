@@ -1,6 +1,5 @@
 """
 Sub-Agent — 子代理运行时 (含工具沙箱 + Agent 类型)
-Maps to: src/tools/AgentTool/AgentTool.ts, utils/forkedAgent.ts
 
 Fork an independent agent with its own message history and tool pool.
 孵化独立的子代理，拥有独立的消息历史和工具池。
@@ -23,19 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────
-# Agent Types — maps to agentId / forkedContextType in AgentTool.ts
 # ────────────────────────────────────────────────────────────────
 
 class AgentType(str, Enum):
     """Sub-agent type, determines tool access and behavior.
-    Maps to: agentId conventions + ASYNC_AGENT_ALLOWED_TOOLS in AgentTool.ts
     """
     WORKER = "worker"       # Background worker — full tool access (coordinator)
     INNER = "inner"         # Restricted helper — limited tools (session, analysis)
 
 
 # Default tool allowlist for INNER agents — safe, read-only tools
-# Maps to: restrictedTools in AgentTool.ts for internal-use agents
 INNER_AGENT_ALLOWED_TOOLS = {
     "read_file",
     "grep",
@@ -46,7 +42,6 @@ INNER_AGENT_ALLOWED_TOOLS = {
 }
 
 # Tools explicitly blocked from ALL sub-agents (for safety)
-# Maps to: excludedTools in forkedAgent.ts
 BLOCKED_TOOLS = {
     "spawn_worker",     # Prevent recursive worker spawning
     "send_message",     # Only coordinator can message workers
@@ -66,7 +61,6 @@ def sandbox_tools(
     extra_blocked: Optional[set[str]] = None,
 ) -> list[Tool]:
     """Filter tools based on agent type and sandbox rules.
-    Maps to: ASYNC_AGENT_ALLOWED_TOOLS filtering in AgentTool.ts
 
     Args:
         tools: Full tool list from the parent engine
@@ -97,7 +91,6 @@ async def run_sub_agent(
     agent_type: AgentType = AgentType.WORKER,
 ) -> str:
     """Run a sub-agent with isolated context and sandboxed tools.
-    Maps to: runForkedAgent() in utils/forkedAgent.ts
 
     Key isolation properties (from AgentTool.ts):
       - Independent message history
@@ -144,12 +137,10 @@ async def run_sub_agent(
 
 
 # ────────────────────────────────────────────────────────────────
-# AgentTool — maps to AgentTool in src/tools/AgentTool/AgentTool.ts
 # ────────────────────────────────────────────────────────────────
 
 class AgentTool(Tool):
     """Tool that spawns sub-agents with sandboxed tool access.
-    Maps to: AgentTool in src/tools/AgentTool/AgentTool.ts
     """
     name = "agent"
     description = (

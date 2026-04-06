@@ -1,6 +1,5 @@
 """
 AskUserQuestionTool — 向用户提问工具（人机协作核心）
-Maps to: src/tools/AskUserQuestionTool/AskUserQuestionTool.ts
 
 Structured question-answer tool enabling the LLM to pause execution
 and ask the user for clarification, decisions, or preferences.
@@ -18,7 +17,7 @@ Architecture / 架构:
     → LLM continues with user's choices
 
 Design notes / 设计说明:
-  - Original Claude Code uses React (Ink) for TUI rendering
+  - Some agent systems use React (Ink) for TUI rendering
   - We use simple stdin + Rich formatting for the same UX
   - Supports single-select and multi-select questions
   - "Other" custom input is always available
@@ -37,7 +36,6 @@ logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────
-# Tool prompt — maps to prompt.ts
 # ────────────────────────────────────────────────────────────────
 
 ASK_USER_QUESTION_TOOL_PROMPT = """Use this tool when you need to ask the user questions during execution. This allows you to:
@@ -63,7 +61,6 @@ Usage notes:
 
 class AskUserQuestionTool(Tool):
     """Ask User Question Tool — 向用户提问工具
-    Maps to: src/tools/AskUserQuestionTool/AskUserQuestionTool.ts
 
     Enables the LLM to present structured multiple-choice questions to the
     user and receive their selections. This is essential for human-in-the-loop

@@ -1,6 +1,5 @@
 """
 Instructions — 指令 + 系统提示词
-Maps to: src/utils/claudemd.ts, src/prompt.ts
 
 Discovers CLAW.md instruction files and builds the system prompt.
 发现 CLAW.md 指令文件并构建系统提示词。

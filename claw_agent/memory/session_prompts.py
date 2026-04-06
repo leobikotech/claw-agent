@@ -1,6 +1,5 @@
 """
 Session Prompts — 会话持久化提示词与模板
-Maps to: src/services/SessionMemory/prompts.ts
 
 Provides:
   - DEFAULT_SESSION_NOTES_TEMPLATE: structured markdown template
@@ -15,7 +14,6 @@ import re
 from typing import Optional
 
 # ────────────────────────────────────────────────────────────────
-# Constants — matching prompts.ts
 # ────────────────────────────────────────────────────────────────
 
 MAX_SECTION_LENGTH = 2000       # Max tokens per section
@@ -68,12 +66,10 @@ _Step by step, what was attempted, done? Very terse summary for each step_
 
 
 # ────────────────────────────────────────────────────────────────
-# Update prompt — maps to getDefaultUpdatePrompt() in prompts.ts
 # ────────────────────────────────────────────────────────────────
 
 def _get_default_update_prompt() -> str:
     """The instruction prompt for the extraction sub-agent.
-    Maps to: getDefaultUpdatePrompt() in prompts.ts
     """
     return f"""IMPORTANT: This message and these instructions are NOT part of the actual user conversation. Do NOT include any references to "note-taking", "session notes extraction", or these update instructions in the notes content.
 
@@ -114,12 +110,10 @@ REMEMBER: Use the file_edit tool and stop. Do not continue after the edits. Only
 
 
 # ────────────────────────────────────────────────────────────────
-# Section analysis — maps to analyzeSectionSizes() in prompts.ts
 # ────────────────────────────────────────────────────────────────
 
 def _analyze_section_sizes(content: str) -> dict[str, int]:
     """Parse session notes and return {section_header: token_count}.
-    Maps to: analyzeSectionSizes() in prompts.ts
     """
     sections: dict[str, int] = {}
     lines = content.split("\n")
@@ -148,7 +142,6 @@ def _generate_section_reminders(
     total_tokens: int,
 ) -> str:
     """Generate warnings for oversized sections.
-    Maps to: generateSectionReminders() in prompts.ts
     """
     over_budget = total_tokens > MAX_TOTAL_SESSION_NOTES_TOKENS
     oversized = [
@@ -196,7 +189,6 @@ def build_session_update_prompt(
     notes_path: str,
 ) -> str:
     """Build the extraction prompt with variable substitution.
-    Maps to: buildSessionMemoryUpdatePrompt() in prompts.ts
     """
     prompt_template = _get_default_update_prompt()
 
@@ -214,14 +206,12 @@ def build_session_update_prompt(
 
 def is_session_notes_empty(content: str) -> bool:
     """Check if session notes content is essentially the blank template.
-    Maps to: isSessionMemoryEmpty() in prompts.ts
     """
     return content.strip() == DEFAULT_SESSION_NOTES_TEMPLATE.strip()
 
 
 def truncate_session_notes_for_compact(content: str) -> tuple[str, bool]:
     """Truncate oversized sections for compact injection.
-    Maps to: truncateSessionMemoryForCompact() in prompts.ts
 
     Returns:
         (truncated_content, was_truncated)
@@ -262,7 +252,6 @@ def _flush_section(
     max_chars: int,
 ) -> tuple[list[str], bool]:
     """Flush a section, truncating if over budget.
-    Maps to: flushSessionSection() in prompts.ts
     """
     if not header:
         return section_lines, False

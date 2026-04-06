@@ -1,6 +1,5 @@
 """
 WebFetchTool — HTTP 请求工具
-Maps to: src/tools/WebFetchTool/WebFetchTool.ts
 
 Fetch content from URLs via HTTP.
 通过 HTTP 获取 URL 内容。

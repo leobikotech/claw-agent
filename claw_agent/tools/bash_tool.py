@@ -1,6 +1,5 @@
 """
 BashTool — Shell 执行工具
-Maps to: src/tools/BashTool/BashTool.tsx + prompt.ts (370 lines)
 
 Execute shell commands in a subprocess with timeout, background execution,
 and comprehensive safety/usage instructions matching the original prompt.

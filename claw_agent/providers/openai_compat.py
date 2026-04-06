@@ -1,6 +1,5 @@
 """
 OpenAI Compatible Provider — OpenAI 兼容 API
-Maps to: src/services/api/ (OpenAI path)
 
 Covers: OpenAI, MiniMax, Moonshot/Kimi, DeepSeek, Qwen, and any custom endpoint.
 涵盖：OpenAI、MiniMax、Kimi、DeepSeek、Qwen 及任何自定义端点。

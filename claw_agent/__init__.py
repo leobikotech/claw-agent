@@ -1,6 +1,6 @@
 """
-Claw Agent — Python agent framework inspired by Claude Code architecture.
-Claw Agent — 基于 Claude Code 架构的 Python 智能体框架。
+Claw Agent — Provider-agnostic Python agent framework.
+Claw Agent — 供应商无关的 Python 智能体框架。
 
 Core concepts / 核心概念:
   - Engine: The agent loop (provider-agnostic)

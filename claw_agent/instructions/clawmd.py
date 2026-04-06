@@ -1,6 +1,5 @@
 """
 CLAW.md Config — 项目级指令文件系统
-Maps to: src/utils/claudemd.ts
 
 Discovers and loads CLAW.md instruction files from multiple sources,
 assembled in priority order and injected into the system prompt.
@@ -484,7 +483,6 @@ _TYPE_DESCRIPTIONS = {
 def format_instructions_prompt(files: List[InstructionFile]) -> str:
     """Format discovered instruction files into a prompt string.
 
-    Maps to: getClaudeMds() in claudemd.ts
     """
     if not files:
         return ""

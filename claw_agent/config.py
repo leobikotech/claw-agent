@@ -1,6 +1,5 @@
 """
 Configuration — 配置系统
-Maps to: bun:bundle feature(), src/utils/config.ts
 
 Centralized config with provider-agnostic LLM settings.
 集中配置，Provider 无关的 LLM 设置。
@@ -30,20 +29,17 @@ class Config:
     temperature: float = 0.0
     cwd: str = field(default_factory=os.getcwd)  # Working directory / 工作目录
 
-    # --- Error recovery (maps to query.ts error handling) ---
     fallback_model: Optional[str] = None      # Switch to this model on repeated failures
     max_output_recovery_limit: int = 3        # Max nudge retries on finish_reason=length
 
     # --- Tool execution ---
     parallel_tool_execution: bool = True      # Run independent tool calls concurrently
 
-    # --- Permissions (maps to PermissionMode in Tool.ts) ---
     permission_mode: str = "default"  # default | auto | yolo
 
     # --- Memory ---
     memory_dir: Optional[str] = None  # None = auto (~/.claw/memory/)
 
-    # --- Feature flags (maps to bun:bundle feature()) ---
     features: dict = field(default_factory=lambda: {
         "MEMORY": True,           # File-based memory system
         "DREAM": True,            # Background memory consolidation
@@ -60,7 +56,6 @@ class Config:
     system_prompt: Optional[str] = None  # Custom override
     append_system_prompt: Optional[str] = None  # Appended to default
 
-    # --- Language preference (maps to settings.language in prompts.ts) ---
     # Controls the language the agent uses to communicate with the user.
     # Internal prompts, tool calls, and code remain unaffected.
     # P2: also reads from CLAW_LANGUAGE env var as fallback.

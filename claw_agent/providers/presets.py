@@ -1,6 +1,5 @@
 """
 Provider Presets & Factory — Provider 注册表 + 工厂
-Maps to: src/services/api/ (provider resolution)
 
 Known providers, their default endpoints, and the factory function.
 已知 Provider 的默认端点和工厂函数。

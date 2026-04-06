@@ -1,6 +1,5 @@
 """
 Engine — 核心 Agent 循环
-Maps to: src/QueryEngine.ts (QueryEngine class, submitMessage)
 
 The heart of the agent system — orchestrates the LLM ↔ Tool loop.
 Features:
@@ -47,14 +46,13 @@ logger = logging.getLogger(__name__)
 
 # ────────────────────────────────────────────────────────────────
 # Retry + Error Classification
-# Maps to: categorizeRetryableAPIError + isPromptTooLong in services/api/errors.ts
 # ────────────────────────────────────────────────────────────────
 
 MAX_RETRIES = 3
 INITIAL_BACKOFF_S = 1.0
 MAX_BACKOFF_S = 30.0
 
-# Max output token recovery nudge message (from query.ts:1226)
+# Max output token recovery nudge message 
 MAX_OUTPUT_NUDGE = (
     "Output token limit hit. Resume directly — no apology, no recap of what "
     "you were doing. Pick up mid-thought if that is where the cut happened. "
@@ -75,7 +73,6 @@ PROMPT_TOO_LONG_PATTERNS = [
 
 def _classify_api_error(error: Exception) -> str:
     """Classify API error for recovery routing.
-    Maps to: categorizeRetryableAPIError() + isPromptTooLong() in query.ts
 
     Returns: 'retryable' | 'prompt_too_long' | 'fatal'
     """
@@ -89,7 +86,6 @@ def _classify_api_error(error: Exception) -> str:
 
 def _fill_missing_tool_results(messages: list) -> list:
     """Ensure every tool_use (assistant with tool_calls) has matching tool_results.
-    Maps to: yieldMissingToolResultBlocks() in query.ts:984
 
     Prevents API rejection due to orphaned tool_use blocks when errors
     occur between tool_use emission and tool_result generation.
@@ -123,7 +119,6 @@ def _fill_missing_tool_results(messages: list) -> list:
 
 # ────────────────────────────────────────────────────────────────
 # Streaming re-entry constants
-# Maps to: event processing config in QueryEngine.ts
 # ────────────────────────────────────────────────────────────────
 
 # Max seconds to wait for a single event from the queue
@@ -164,7 +159,6 @@ def _parse_notification(text: str) -> tuple[Optional[str], Optional[str]]:
 
 class Engine:
     """The agent loop — core of the system / 智能体循环——系统核心
-    Maps to: QueryEngine in src/QueryEngine.ts
 
     Streaming re-entry architecture:
       When background workers are pending and the LLM produces no tool calls,
@@ -192,10 +186,8 @@ class Engine:
         self.session_persistence = session_persistence
         self.messages: list[Message] = []
 
-        # Abort flag — cooperative cancellation (maps to AbortController in QueryEngine.ts)
         self.aborted = False
 
-        # Token usage tracking (maps to cost-tracker.ts)
         self.total_usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
 
         # Auto-compact tracking (maps to AutoCompactTrackingState)
@@ -205,7 +197,6 @@ class Engine:
         self.event_queue = event_queue
 
         # Hook manager — lifecycle event system
-        # Maps to: postSamplingHooks + stopHooks + toolHooks in the TS source
         self.hook_manager = hook_manager or HookManager()
 
         # --- Background task registry (streaming re-entry) ---
@@ -229,7 +220,6 @@ class Engine:
                 self.registry.register(t)
 
         # --- Register session persistence hook ---
-        # Maps to: registerPostSamplingHook(extractSessionMemory) in sessionMemory.ts
         if self.session_persistence is not None:
             from claw_agent.memory.session_persistence import create_session_persistence_hook
             self.hook_manager.register(
@@ -274,10 +264,9 @@ class Engine:
         """Assemble the system prompt via PromptBuilder / 使用 PromptBuilder 组装"""
         builder = PromptBuilder(self.config.cwd)
 
-        # Auto-discover CLAW.md instruction files (maps to getMemoryFiles + getClaudeMds in claudemd.ts)
+        # Auto-discover CLAW.md instruction files
         builder.load_instructions()
 
-        # Language preference (maps to getLanguageSection(settings.language) in prompts.ts)
         if self.config.language:
             builder.set_language(self.config.language)
 
@@ -297,7 +286,6 @@ class Engine:
         max_tokens_override: Optional[int] = None,
     ) -> Any:
         """Call LLM with retry, backoff, and model fallback.
-        Maps to: retry logic + FallbackTriggeredError in query.ts
         """
         last_error = None
         current_model = self.config.effective_model
@@ -419,7 +407,6 @@ class Engine:
 
     async def _wait_and_drain_events(self) -> AsyncGenerator[dict, None]:
         """Streaming re-entry: wait for background task events.
-        Maps to: event processing loop in QueryEngine.ts
 
         Suspends on the event queue. For each arriving event:
         1. Parse <task-notification>, update _bg_tasks
@@ -509,7 +496,6 @@ class Engine:
     ) -> AsyncGenerator[dict, None]:
         """Run the agent loop for a user prompt / 为用户输入运行智能体循环
 
-        Maps to: QueryEngine.submitMessage() in QueryEngine.ts
         Yields events: thinking, tool_call, tool_result, done, error, compact,
                        worker_notification, partial, waiting
         """
@@ -616,7 +602,6 @@ class Engine:
                 yield {"type": "thinking", "content": response.thinking}
 
             # --- POST_SAMPLING hook (session persistence fires here) ---
-            # Maps to: executePostSamplingHooks() in postSamplingHooks.ts
             post_sampling_ctx = HookContext(
                 messages=list(self.messages),
                 engine=self,
@@ -636,7 +621,6 @@ class Engine:
 
             # --- 6. No tool calls → check finish_reason + background tasks ---
             if not assistant_msg.tool_calls:
-                # --- Max output token recovery (maps to query.ts:1185-1252) ---
                 if (
                     response.finish_reason == "length"
                     and self._compact_tracking.max_output_recovery_count
@@ -692,7 +676,6 @@ class Engine:
             )
 
             if self.config.parallel_tool_execution and len(assistant_msg.tool_calls) > 1:
-                # --- Parallel execution (maps to StreamingToolExecutor) ---
                 from claw_agent.core.streaming_executor import execute_tools_parallel
                 batch_results = await execute_tools_parallel(
                     tool_calls=assistant_msg.tool_calls,
@@ -797,7 +780,6 @@ class Engine:
 
     def abort(self):
         """Signal the engine to stop at the next safe point.
-        Maps to: AbortController.abort() in QueryEngine.ts
         """
         self.aborted = True
 
@@ -824,7 +806,6 @@ class Engine:
 
     async def _build_memory_attachments(self, query: str) -> str:
         """Find relevant memories and format as XML attachment string.
-        Maps to: findRelevantMemories + attachment injection in QueryEngine.ts
         """
         try:
             if not self.memory:

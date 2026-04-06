@@ -1,6 +1,5 @@
 """
 Compact — 四层上下文压缩管道
-Maps to: src/services/compact/ (snipCompact, microCompact, autoCompact, reactiveCompact)
 
 Four-layer compression pipeline, from lightest to heaviest:
   1. Snip Compact   — zero-cost trimming of oldest messages (no API call)
@@ -27,7 +26,6 @@ from claw_agent.providers.tokens import (
 logger = logging.getLogger(__name__)
 
 # ────────────────────────────────────────────────────────────────
-# Constants — matching autoCompact.ts
 # ────────────────────────────────────────────────────────────────
 
 # Reserve this many tokens for the compact summary output
@@ -46,17 +44,14 @@ MANUAL_COMPACT_BUFFER = 3_000
 # Circuit breaker: stop after N consecutive failures
 MAX_CONSECUTIVE_FAILURES = 3
 
-# ── Snip Compact constants (maps to snipCompact.ts) ──
 SNIP_MESSAGE_THRESHOLD = 60       # Start snipping when messages exceed this
 SNIP_KEEP_RECENT = 40             # Always keep the most recent N messages
 SNIP_BOUNDARY = "[Earlier conversation history was trimmed to save context space.]"
 
-# ── Micro Compact constants (maps to microCompact.ts) ──
 MICRO_COMPACT_KEEP_RECENT = 5     # Keep last N tool results intact
 MICRO_COMPACT_MAX_TOKENS = 2000   # Max tokens per old tool result before truncation
 MICRO_COMPACT_CLEARED_MSG = "[Old tool result content cleared]"
 
-# Tools eligible for micro compact (maps to COMPACTABLE_TOOLS in microCompact.ts)
 COMPACTABLE_TOOLS = {
     "bash", "read_file", "grep", "glob",
     "web_search", "web_fetch", "edit_file", "write_file",
@@ -198,7 +193,6 @@ NO_TOOLS_TRAILER = (
 
 def get_compact_prompt(custom_instructions: Optional[str] = None) -> str:
     """Build the full compact prompt for the LLM.
-    Maps to: getCompactPrompt() in prompt.ts
     """
     prompt = NO_TOOLS_PREAMBLE + BASE_COMPACT_PROMPT
     if custom_instructions and custom_instructions.strip():
@@ -209,7 +203,6 @@ def get_compact_prompt(custom_instructions: Optional[str] = None) -> str:
 
 def format_compact_summary(raw_summary: str) -> str:
     """Strip <analysis> scratchpad and format <summary> tags.
-    Maps to: formatCompactSummary() in prompt.ts
     """
     result = raw_summary
 
@@ -232,7 +225,6 @@ def get_compact_user_summary_message(
     suppress_followup: bool = False,
 ) -> str:
     """Build the user message that replaces compacted history.
-    Maps to: getCompactUserSummaryMessage() in prompt.ts
     """
     formatted = format_compact_summary(summary)
 
@@ -255,12 +247,10 @@ def get_compact_user_summary_message(
 
 
 # ────────────────────────────────────────────────────────────────
-# Auto-compact logic — maps to autoCompact.ts
 # ────────────────────────────────────────────────────────────────
 
 def get_effective_context_window(model: str) -> int:
     """Context window minus reserved output tokens.
-    Maps to: getEffectiveContextWindowSize() in autoCompact.ts
     """
     context_window = get_context_window(model)
     reserved = min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, 8_192)  # Conservative for our providers
@@ -269,7 +259,6 @@ def get_effective_context_window(model: str) -> int:
 
 def get_auto_compact_threshold(model: str) -> int:
     """Threshold at which autocompact triggers.
-    Maps to: getAutoCompactThreshold() in autoCompact.ts
     """
     effective = get_effective_context_window(model)
     return effective - AUTOCOMPACT_BUFFER_TOKENS
@@ -280,7 +269,6 @@ def should_auto_compact(
     model: str,
 ) -> bool:
     """Check if conversation should be auto-compacted.
-    Maps to: shouldAutoCompact() in autoCompact.ts
     """
     token_count = estimate_tokens_messages(messages)
     threshold = get_auto_compact_threshold(model)
@@ -298,7 +286,6 @@ def calculate_token_warning_state(
     model: str,
 ) -> dict[str, Any]:
     """Calculate context usage warnings.
-    Maps to: calculateTokenWarningState() in autoCompact.ts
     """
     token_count = estimate_tokens_messages(messages)
     threshold = get_auto_compact_threshold(model)
@@ -328,7 +315,6 @@ async def auto_compact_if_needed(
     session_persistence: Optional[Any] = None,  # SessionPersistence
 ) -> tuple[list[dict[str, Any]], bool]:
     """Run autocompact if needed. Returns (new_messages, was_compacted).
-    Maps to: autoCompactIfNeeded() in autoCompact.ts
 
     This is the main entry point called by Engine after each turn.
     If session_persistence is provided and has non-empty notes, uses
@@ -345,7 +331,6 @@ async def auto_compact_if_needed(
     logger.info("autocompact: threshold exceeded, compacting conversation...")
 
     # --- Try session-memory compact first ---
-    # Maps to: trySessionMemoryCompaction() in sessionMemoryCompact.ts
     if session_persistence is not None:
         try:
             sm_result = await _try_session_memory_compact(
@@ -408,7 +393,6 @@ async def auto_compact_if_needed(
 
 
 # ────────────────────────────────────────────────────────────────
-# Session-memory compact — maps to sessionMemoryCompact.ts
 # ────────────────────────────────────────────────────────────────
 
 # Configuration for how many recent messages to preserve
@@ -423,7 +407,6 @@ async def _try_session_memory_compact(
     tracking: Optional[CompactTrackingState] = None,
 ) -> Optional[list[dict[str, Any]]]:
     """Try to compact using session notes instead of LLM summarization.
-    Maps to: trySessionMemoryCompaction() in sessionMemoryCompact.ts
 
     Returns new_messages on success, or None if session-memory compact
     cannot be used (falls back to legacy).
@@ -503,7 +486,6 @@ def _calculate_messages_to_keep_index(
     last_summarized_id: Optional[str],
 ) -> int:
     """Calculate the starting index for messages to keep after compact.
-    Maps to: calculateMessagesToKeepIndex() in sessionMemoryCompact.ts
 
     Starts from last_summarized_id, then expands backwards to meet minimums.
     Finally adjusts the index to preserve tool_use/tool_result API invariants.
@@ -564,7 +546,6 @@ def _adjust_index_to_preserve_api_invariants(
     start_index: int,
 ) -> int:
     """Adjust the start index to ensure we don't split tool_use/tool_result pairs.
-    Maps to: adjustIndexToPreserveAPIInvariants() in sessionMemoryCompact.ts
 
     If any message we're keeping contains tool_result blocks, we need to include
     the preceding assistant message(s) that contain the matching tool_use blocks.
@@ -679,7 +660,6 @@ def _serialize_conversation_for_compact(messages: list[dict[str, Any]]) -> str:
 
 
 # ────────────────────────────────────────────────────────────────
-# Layer 1: Snip Compact — maps to snipCompact.ts
 # ────────────────────────────────────────────────────────────────
 
 def snip_old_messages(
@@ -689,7 +669,6 @@ def snip_old_messages(
     keep_recent: int = SNIP_KEEP_RECENT,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Trim oldest messages beyond threshold, zero API cost.
-    Maps to: snipMessages() in snipCompact.ts
 
     Preserves tool_use/tool_result pairing by adjusting the cut point
     forward past any orphaned tool_result messages.
@@ -723,7 +702,6 @@ def snip_old_messages(
 
 
 # ────────────────────────────────────────────────────────────────
-# Layer 2: Micro Compact — maps to microCompact.ts
 # ────────────────────────────────────────────────────────────────
 
 def _extract_tool_name_for_call_id(
@@ -748,7 +726,6 @@ def micro_compact_tool_results(
     max_result_tokens: int = MICRO_COMPACT_MAX_TOKENS,
 ) -> tuple[list[dict[str, Any]], int]:
     """Compress old/large tool results. Zero API cost.
-    Maps to: microcompactMessages() in microCompact.ts
 
     Scans tool results from oldest to newest. Keeps the most recent
     `keep_recent` results intact; older ones are replaced with a
@@ -794,7 +771,6 @@ def micro_compact_tool_results(
 
 
 # ────────────────────────────────────────────────────────────────
-# Layer 4: Reactive Compact — maps to reactiveCompact.ts
 # ────────────────────────────────────────────────────────────────
 
 async def reactive_compact(
@@ -804,7 +780,6 @@ async def reactive_compact(
     tracking: Optional[CompactTrackingState] = None,
 ) -> Optional[list[dict[str, Any]]]:
     """Emergency compaction on 413/prompt-too-long. Last resort.
-    Maps to: tryReactiveCompact() in reactiveCompact.ts
 
     Called by Engine when LLM returns a prompt_too_long error.
     Uses the same compact prompt as legacy LLM compact but forces
@@ -869,7 +844,6 @@ def run_pre_compact_pipeline(
     messages: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], bool]:
     """Run zero-cost compression layers before auto-compact.
-    Maps to: snipCompact + microCompact in query.ts main loop
 
     Returns (new_messages, any_changes).
     """

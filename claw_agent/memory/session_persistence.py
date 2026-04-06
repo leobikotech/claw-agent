@@ -1,6 +1,5 @@
 """
 Session Persistence — 会话持久化系统
-Maps to: src/services/SessionMemory/sessionMemory.ts + sessionMemoryUtils.ts
 
 Automatically maintains a structured markdown file with notes about the current
 conversation. Runs periodically via a forked sub-agent to extract key information
@@ -37,7 +36,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ────────────────────────────────────────────────────────────────
-# Constants — matching sessionMemoryUtils.ts
 # ────────────────────────────────────────────────────────────────
 
 SESSION_NOTES_FILENAME = "session-notes.md"
@@ -46,13 +44,11 @@ EXTRACTION_STALE_THRESHOLD_S = 60  # 1 minute
 
 
 # ────────────────────────────────────────────────────────────────
-# Configuration — maps to SessionMemoryConfig in sessionMemoryUtils.ts
 # ────────────────────────────────────────────────────────────────
 
 @dataclass
 class SessionPersistenceConfig:
     """Threshold configuration for session persistence extraction.
-    Maps to: SessionMemoryConfig in sessionMemoryUtils.ts
 
     Attributes:
         min_tokens_to_init: Minimum context window tokens before first extraction.
@@ -65,14 +61,12 @@ class SessionPersistenceConfig:
 
 
 # ────────────────────────────────────────────────────────────────
-# Main class — maps to sessionMemory.ts + sessionMemoryUtils.ts
 # ────────────────────────────────────────────────────────────────
 
 class SessionPersistence:
     """Session persistence — maintains structured notes across conversations.
     会话持久化——跨对话维护结构化笔记。
 
-    Maps to:
       - initSessionMemory() / extractSessionMemory() in sessionMemory.ts
       - SessionMemoryConfig / state functions in sessionMemoryUtils.ts
     """
@@ -85,7 +79,6 @@ class SessionPersistence:
         self.cwd = cwd
         self.config = config or SessionPersistenceConfig()
 
-        # --- Internal state (maps to sessionMemoryUtils.ts module variables) ---
         self._initialized = False           # Has met min_tokens_to_init threshold
         self._tokens_at_last_extraction = 0 # Token count at last extraction
         self._last_extraction_message_uuid: Optional[str] = None  # UUID of last message at extraction time
@@ -121,7 +114,6 @@ class SessionPersistence:
     def last_summarized_message_id(self) -> Optional[str]:
         """The message ID up to which session notes are current.
         Used by compact to determine which messages to keep.
-        Maps to: getLastSummarizedMessageId() in sessionMemoryUtils.ts
         """
         return self._last_summarized_message_id
 
@@ -144,7 +136,6 @@ class SessionPersistence:
         since_uuid: Optional[str],
     ) -> int:
         """Count tool calls in assistant messages since a given message UUID.
-        Maps to: countToolCallsSince() in sessionMemory.ts
         """
         tool_call_count = 0
         found_start = since_uuid is None
@@ -166,7 +157,6 @@ class SessionPersistence:
 
     def _has_tool_calls_in_last_assistant_turn(self, messages: list) -> bool:
         """Check if the last assistant message has tool calls.
-        Maps to: hasToolCallsInLastAssistantTurn() in utils/messages.ts
         """
         for msg in reversed(messages):
             if hasattr(msg, "tool_calls"):
@@ -175,7 +165,6 @@ class SessionPersistence:
 
     def should_extract(self, messages: list) -> bool:
         """Check if session notes should be extracted now.
-        Maps to: shouldExtractMemory() in sessionMemory.ts
 
         Dual-threshold logic:
           1. Token threshold: context has grown by ≥ min_tokens_between_update
@@ -240,7 +229,6 @@ class SessionPersistence:
 
     def _ensure_notes_file(self) -> None:
         """Create session notes file with template if it doesn't exist.
-        Maps to: setupSessionMemoryFile() in sessionMemory.ts
         """
         self._ensure_session_dir()
         if not os.path.exists(self._notes_path):
@@ -256,7 +244,6 @@ class SessionPersistence:
 
     def get_content(self) -> Optional[str]:
         """Get current session notes content, or None if no file exists.
-        Maps to: getSessionMemoryContent() in sessionMemoryUtils.ts
         """
         try:
             if not os.path.exists(self._notes_path):
@@ -268,7 +255,6 @@ class SessionPersistence:
             return None
 
     # ────────────────────────────────────────────────────────────
-    # Extraction — maps to extractSessionMemory() in sessionMemory.ts
     # ────────────────────────────────────────────────────────────
 
     async def extract(
@@ -277,7 +263,6 @@ class SessionPersistence:
         app_config: "Config",
     ) -> None:
         """Run session notes extraction via a forked sub-agent.
-        Maps to: extractSessionMemory() in sessionMemory.ts
 
         Creates a lightweight Engine instance restricted to file-edit-only,
         passes the full conversation as context, and instructs it to update
@@ -357,7 +342,6 @@ class SessionPersistence:
 
     async def wait_for_extraction(self) -> None:
         """Wait for any in-progress extraction to complete (with timeout).
-        Maps to: waitForSessionMemoryExtraction() in sessionMemoryUtils.ts
 
         Returns immediately if no extraction is running or if extraction is stale (>1min).
         """
@@ -397,7 +381,6 @@ class SessionPersistence:
 
     def reset(self) -> None:
         """Reset all internal state.
-        Maps to: resetSessionMemoryState() in sessionMemoryUtils.ts
         """
         self._initialized = False
         self._tokens_at_last_extraction = 0
@@ -408,7 +391,6 @@ class SessionPersistence:
 
 # ────────────────────────────────────────────────────────────────
 # Hook factory — create HookCallback for Engine registration
-# Maps to: registerPostSamplingHook(extractSessionMemory) in sessionMemory.ts
 # ────────────────────────────────────────────────────────────────
 
 def create_session_persistence_hook(
@@ -418,7 +400,6 @@ def create_session_persistence_hook(
     """Create a fire-and-forget hook callback for session persistence extraction.
     创建会话持久化提取的后台钩子回调。
 
-    Maps to: registerPostSamplingHook(extractSessionMemory) in sessionMemory.ts
     Registered as POST_SAMPLING event hook with fire_and_forget=True.
     """
     from claw_agent.core.hooks import HookContext, HookResult

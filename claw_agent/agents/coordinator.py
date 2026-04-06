@@ -1,11 +1,10 @@
 """
 Coordinator — 异步多代理编排器
-Maps to: src/coordinator/coordinatorMode.ts
 
 True asynchronous fan-out/fan-in using event queues.
 真正的异步多代理流：主节点非阻塞派发 -> 子任务后台运行 -> 队列回传事件 -> 唤醒主节点。
 
-原版工具集:
+参考工具集:
   - SpawnWorkerTool (agent)  — 非阻塞启动后台 Worker
   - SendMessageTool          — 向已有 Worker 发送后续指令 (continue)
   - TaskStopTool             — 取消正在运行的 Worker
@@ -70,7 +69,6 @@ def _build_notification(
     usage: Optional[dict] = None,
 ) -> str:
     """Build structured <task-notification> XML / 构建结构化任务通知 XML
-    Maps to: task-notification format in coordinatorMode.ts
     """
     parts = [
         "<task-notification>",
@@ -91,7 +89,6 @@ def _build_notification(
 
 # ────────────────────────────────────────────────────────────────
 # SpawnWorkerTool — 非阻塞启动 Worker
-# Maps to: AgentTool in src/tools/AgentTool/
 # ────────────────────────────────────────────────────────────────
 
 class SpawnWorkerTool(Tool):
@@ -201,12 +198,10 @@ class SpawnWorkerTool(Tool):
 
 # ────────────────────────────────────────────────────────────────
 # SendMessageTool — 向已有 Worker 发送后续消息
-# Maps to: SendMessageTool in src/tools/SendMessageTool/
 # ────────────────────────────────────────────────────────────────
 
 class SendMessageTool(Tool):
     """Restart a finished worker with a follow-up instruction / 向已完成的 Worker 发送后续指令
-    Maps to: src/tools/SendMessageTool
 
     Note: Each invocation spawns a fresh sub-agent engine. The worker does NOT
     retain conversation context from its previous run — include all necessary
@@ -322,7 +317,6 @@ class SendMessageTool(Tool):
 
 # ────────────────────────────────────────────────────────────────
 # TaskStopTool — 取消后台 Worker
-# Maps to: TaskStopTool in src/tools/TaskStopTool/
 # ────────────────────────────────────────────────────────────────
 
 class TaskStopTool(Tool):
@@ -372,7 +366,6 @@ class TaskStopTool(Tool):
 
 # ────────────────────────────────────────────────────────────────
 # Coordinator System Prompt — 协调器系统提示词
-# Maps to: getCoordinatorSystemPrompt() in coordinatorMode.ts
 # ────────────────────────────────────────────────────────────────
 
 COORDINATOR_SYSTEM_PROMPT = """You are an AI assistant that orchestrates software engineering tasks across multiple workers.
@@ -603,7 +596,6 @@ class Coordinator:
     async def fan_out(self, tasks: List[WorkerTask]) -> List[WorkerResult]:
         """Run multiple workers in parallel and collect results / 并行运行多个 Worker 并收集结果
 
-        Maps to: the Research→parallel fan-out pattern in coordinatorMode.ts
         """
         async def run_one(task: WorkerTask) -> WorkerResult:
             start = time.monotonic()
@@ -626,7 +618,6 @@ class Coordinator:
     async def run(self, goal: str, tasks: List[WorkerTask]) -> str:
         """Full coordinator flow: fan-out workers → synthesize results / 完整编排流：扇出 → 综合
 
-        Maps to: the full coordinator cycle in coordinatorMode.ts
         """
         # Phase 1: Fan out
         results = await self.fan_out(tasks)

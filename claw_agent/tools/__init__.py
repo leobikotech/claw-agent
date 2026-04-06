@@ -1,6 +1,5 @@
 """
 Tools — 工具集入口
-Maps to: src/tools.ts getAllBaseTools()
 
 Registry of all built-in tools.
 """
@@ -15,7 +14,6 @@ from claw_agent.tools.ask_user_tool import AskUserQuestionTool
 
 def get_default_tools():
     """Get all built-in tools / 获取所有内置工具
-    Maps to: getAllBaseTools() in src/tools.ts
     """
     return [
         BashTool(),

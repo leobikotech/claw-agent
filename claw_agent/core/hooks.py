@@ -1,6 +1,5 @@
 """
 Hooks — 生命周期钩子系统
-Maps to: src/utils/hooks/postSamplingHooks.ts + src/utils/hooks.ts (simplified)
 
 Unified lifecycle hook system for the agent engine.
 统一的智能体引擎生命周期钩子系统。
@@ -12,7 +11,7 @@ Design:
   - Engine fires hooks at key points: tool use, stop, compact, session
 
 Architecture note:
-  The original Claude Code has two hook layers:
+  Production agent systems typically have two hook layers:
   1. User-facing shell-command hooks (utils/hooks.ts, 5000+ lines)
   2. Internal programmatic hooks (postSamplingHooks.ts, 71 lines)
 
@@ -37,14 +36,12 @@ logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────
-# Hook Events — maps to HookEvent type in src/entrypoints/agentSdkTypes.ts
 # ────────────────────────────────────────────────────────────────
 
 class HookEvent(str, Enum):
     """Lifecycle events where hooks can be registered.
     生命周期事件——钩子注册点。
 
-    Maps to: HookEvent in src/entrypoints/agentSdkTypes.ts
     Subset of the original's 20+ events, focused on the core agent loop.
     """
 
@@ -56,12 +53,10 @@ class HookEvent(str, Enum):
     # Post-sampling / LLM 响应后
     POST_SAMPLING = "post_sampling"     # After each LLM response (before tool exec decision)
                                         # This is where session persistence extraction triggers.
-                                        # Maps to: registerPostSamplingHook() in postSamplingHooks.ts
 
     # Turn lifecycle / 轮次生命周期
     STOP = "stop"                       # LLM produced no tool calls (turn end)
                                         # This is where autoDream fires.
-                                        # Maps to: stopHooks.ts handleStopHooks()
 
     # Session lifecycle / 会话生命周期
     SESSION_START = "session_start"     # Session begins
@@ -73,7 +68,6 @@ class HookEvent(str, Enum):
 
 
 # ────────────────────────────────────────────────────────────────
-# Hook Context — maps to REPLHookContext in postSamplingHooks.ts
 # ────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -81,7 +75,6 @@ class HookContext:
     """Context passed to hook callbacks.
     传递给钩子回调的上下文。
 
-    Maps to: REPLHookContext in src/utils/hooks/postSamplingHooks.ts
     """
     # Full message history at the time of hook invocation
     messages: list = field(default_factory=list)
@@ -101,7 +94,6 @@ class HookContext:
 
 
 # ────────────────────────────────────────────────────────────────
-# Hook Result — maps to AggregatedHookResult in utils/hooks.ts
 # ────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -109,7 +101,6 @@ class HookResult:
     """Result returned by a hook callback.
     钩子回调返回的结果。
 
-    Maps to: AggregatedHookResult in src/utils/hooks.ts
     """
     # If set, blocks the operation and returns this error to the LLM
     blocking_error: Optional[str] = None
@@ -155,7 +146,6 @@ class HookManager:
     """Lifecycle hook manager — register, execute, introspect.
     生命周期钩子管理器——注册、执行、内省。
 
-    Maps to:
       - registerPostSamplingHook / executePostSamplingHooks (postSamplingHooks.ts)
       - executeStopHooks / executePreToolHooks / ... (utils/hooks.ts)
 
@@ -191,7 +181,6 @@ class HookManager:
             priority: Lower values run first (default 0)
             fire_and_forget: If True, callback runs as asyncio.create_task
                              (non-blocking, errors logged but not propagated).
-                             Maps to: `void executeAutoDream()` pattern in stopHooks.ts
         """
         if not name:
             name = getattr(callback, "__name__", "anonymous")
@@ -233,7 +222,6 @@ class HookManager:
         Synchronous hooks run sequentially (can block/modify).
         Fire-and-forget hooks launch via asyncio.create_task (results discarded).
 
-        Maps to:
           - executePostSamplingHooks() for background hooks
           - executeStopHooks() for blocking hooks
           - executePreToolHooks() for blocking+modifying hooks
@@ -251,7 +239,6 @@ class HookManager:
 
         for entry in hooks:
             if entry.fire_and_forget:
-                # Fire-and-forget: maps to `void executeAutoDream()` in stopHooks.ts
                 task = asyncio.create_task(
                     self._run_fire_and_forget(entry, context),
                     name=f"hook:{entry.name}",
@@ -274,7 +261,6 @@ class HookManager:
                             break
                 except Exception as e:
                     # Log but don't fail on hook errors
-                    # Maps to: catch in postSamplingHooks.ts:64
                     logger.error(f"Hook {entry.name} error: {e}")
 
         return results
@@ -297,7 +283,6 @@ class HookManager:
     def clear(self, event: Optional[HookEvent] = None) -> None:
         """Clear hooks. If event is None, clear all.
         清除钩子。event 为 None 时清除全部。
-        Maps to: clearPostSamplingHooks() in postSamplingHooks.ts
         """
         if event:
             self._hooks[event].clear()
@@ -308,7 +293,6 @@ class HookManager:
     def list_hooks(self) -> dict[str, list[dict]]:
         """Introspect: list all registered hooks grouped by event.
         内省：列出所有已注册钩子。
-        Maps to: /hooks command in commands/hooks/index.ts
         """
         result: dict[str, list[dict]] = {}
         for event in HookEvent:

@@ -1,6 +1,5 @@
 """
 MCP Client — Model Context Protocol 客户端
-Maps to: src/services/mcp/ (client.ts, types.ts, config.ts)
 
 Manages connections to MCP servers and bridges their tools into the agent.
 管理 MCP 服务器连接，将其工具桥接到智能体系统中。
@@ -27,15 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────
-# Constants — maps to client.ts constants
 # ────────────────────────────────────────────────────────────────
 
 # Cap on MCP tool descriptions sent to the model.
-# Maps to: MAX_MCP_DESCRIPTION_LENGTH in client.ts
 MAX_MCP_DESCRIPTION_LENGTH = 2048
 
 # Connection retry config
-# Maps to: getConnectionTimeoutMs() + retry logic in client.ts
 MAX_CONNECT_RETRIES = 3
 INITIAL_RETRY_BACKOFF_S = 1.0
 MAX_RETRY_BACKOFF_S = 10.0
@@ -43,13 +39,11 @@ CONNECTION_TIMEOUT_S = 30.0
 
 
 # ────────────────────────────────────────────────────────────────
-# Config — maps to types.ts (McpStdioServerConfig, McpSSEServerConfig, etc.)
 # ────────────────────────────────────────────────────────────────
 
 @dataclass
 class MCPServerConfig:
     """Configuration for a single MCP server / 单个 MCP 服务器配置
-    Maps to: McpServerConfigSchema union in types.ts
 
     Transport types:
       - stdio (default): local process — requires `command` + `args`
@@ -67,12 +61,10 @@ class MCPServerConfig:
 
 # ────────────────────────────────────────────────────────────────
 # MCPBridgeTool — tool wrapping
-# Maps to: MCPTool in src/tools/MCPTool/MCPTool.ts + tool creation in client.ts
 # ────────────────────────────────────────────────────────────────
 
 def _truncate_description(desc: str, max_len: int = MAX_MCP_DESCRIPTION_LENGTH) -> str:
     """Truncate MCP tool/server descriptions to prevent context overflow.
-    Maps to: MAX_MCP_DESCRIPTION_LENGTH truncation in client.ts
     """
     if len(desc) <= max_len:
         return desc
@@ -81,7 +73,6 @@ def _truncate_description(desc: str, max_len: int = MAX_MCP_DESCRIPTION_LENGTH) 
 
 class MCPBridgeTool(Tool):
     """Bridges an MCP server tool into the agent's tool system / MCP 工具桥接
-    Maps to: MCPTool in src/tools/MCPTool/MCPTool.ts
     """
 
     def __init__(self, server_name: str, tool_def: dict, session: ClientSession):
@@ -112,12 +103,11 @@ class MCPBridgeTool(Tool):
 
 # ────────────────────────────────────────────────────────────────
 # MCPManager — connection management
-# Maps to: connectToServer() + MCPServerConnection[] in client.ts
 # ────────────────────────────────────────────────────────────────
 
 class MCPManager:
     """Manages all MCP server connections / 管理所有 MCP 服务器连接
-    Maps to: MCPServerConnection[] management in Claude Code
+    Manages multiple MCP server connections with lifecycle management.
 
     Features:
       - Multiple transport support (stdio, sse, http)
@@ -133,7 +123,6 @@ class MCPManager:
 
     async def connect(self, server: MCPServerConfig) -> ClientSession:
         """Connect to a single MCP server with retry / 连接到 MCP 服务器（带重试）
-        Maps to: connectToServer() in client.ts
         """
         last_error: Optional[Exception] = None
 
@@ -162,7 +151,6 @@ class MCPManager:
 
     async def _connect_once(self, server: MCPServerConfig) -> ClientSession:
         """Single connection attempt — dispatches by transport type.
-        Maps to: transport selection in connectToServer() in client.ts
         """
         transport_type = server.transport.lower()
 
@@ -180,7 +168,6 @@ class MCPManager:
 
     async def _connect_stdio(self, server: MCPServerConfig) -> ClientSession:
         """Connect via stdio transport / 通过 stdio 连接
-        Maps to: StdioClientTransport in client.ts
         """
         logger.info(f"Connecting to MCP server via stdio: {server.name}")
 
@@ -202,7 +189,6 @@ class MCPManager:
 
     async def _connect_sse(self, server: MCPServerConfig) -> ClientSession:
         """Connect via SSE transport / 通过 SSE 连接
-        Maps to: SSEClientTransport in client.ts
         """
         if not server.url:
             raise ValueError(f"MCP server '{server.name}' with transport='sse' requires a 'url'")
@@ -225,7 +211,6 @@ class MCPManager:
 
     async def _connect_http(self, server: MCPServerConfig) -> ClientSession:
         """Connect via Streamable HTTP transport / 通过 HTTP 连接
-        Maps to: StreamableHTTPClientTransport in client.ts
         """
         if not server.url:
             raise ValueError(f"MCP server '{server.name}' with transport='http' requires a 'url'")
@@ -248,7 +233,6 @@ class MCPManager:
 
     def _extract_server_instructions(self, name: str, session: ClientSession) -> None:
         """Extract and store server instructions after connection.
-        Maps to: client.getInstructions() + MAX_MCP_DESCRIPTION_LENGTH truncation in client.ts
         """
         try:
             server_info = getattr(session, "server_info", None)
@@ -288,7 +272,6 @@ class MCPManager:
 
     async def discover_tools_async(self, registry: ToolRegistry) -> list[Tool]:
         """Async version — discover and register all MCP tools / 异步发现并注册 MCP 工具
-        Maps to: getToolsFromClient() in client.ts
         """
         tools: list[Tool] = []
         for name, session in self._sessions.items():
@@ -315,7 +298,6 @@ class MCPManager:
 
     async def list_resources(self, server_name: Optional[str] = None) -> list[dict]:
         """List resources from connected MCP servers.
-        Maps to: fetchResourcesForClient() in client.ts
 
         Args:
             server_name: Optional filter — only list resources from this server.
@@ -353,7 +335,6 @@ class MCPManager:
 
     async def read_resource(self, server_name: str, uri: str) -> str:
         """Read a specific resource from an MCP server.
-        Maps to: ReadMcpResourceTool call in client.ts
 
         Args:
             server_name: Name of the MCP server
@@ -384,13 +365,11 @@ class MCPManager:
 
     def get_server_instructions(self) -> dict[str, str]:
         """Get all server instructions (already truncated).
-        Maps to: client.getInstructions() usage in client.ts
         """
         return dict(self._server_instructions)
 
     def build_instructions_prompt(self) -> Optional[str]:
         """Build a prompt section from all server instructions.
-        Maps to: server instructions injection into system prompt in client.ts
 
         Returns:
             Formatted prompt string, or None if no servers have instructions.
