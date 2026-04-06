@@ -127,9 +127,9 @@ class SpawnWorkerTool(Tool):
         self.event_queue = event_queue
         super().__init__()
 
-    async def call(self, args: dict[str, Any], context: ToolContext) -> str:
-        worker_id = args["worker_name"]
-        prompt = args["prompt"]
+    async def call(self, arguments: dict[str, Any], context: ToolContext) -> str:
+        worker_id = arguments["worker_name"]
+        prompt = arguments["prompt"]
 
         if worker_id in _ACTIVE_WORKERS and not _ACTIVE_WORKERS[worker_id].task.done():
             return f"Error: Worker '{worker_id}' is already running."
@@ -248,9 +248,9 @@ class SendMessageTool(Tool):
         self.event_queue = event_queue
         super().__init__()
 
-    async def call(self, args: dict[str, Any], context: ToolContext) -> str:
-        worker_id = args["to"]
-        message = args["message"]
+    async def call(self, arguments: dict[str, Any], context: ToolContext) -> str:
+        worker_id = arguments["to"]
+        message = arguments["message"]
 
         # Check if worker exists
         if worker_id in _ACTIVE_WORKERS and not _ACTIVE_WORKERS[worker_id].task.done():
@@ -344,8 +344,8 @@ class TaskStopTool(Tool):
         "required": ["worker_name"],
     }
 
-    async def call(self, args: dict[str, Any], context: ToolContext) -> str:
-        worker_id = args["worker_name"]
+    async def call(self, arguments: dict[str, Any], context: ToolContext) -> str:
+        worker_id = arguments["worker_name"]
         if worker_id not in _ACTIVE_WORKERS:
             return f"Error: Worker '{worker_id}' not found."
 

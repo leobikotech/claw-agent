@@ -16,7 +16,7 @@ import time
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Any
 
 if TYPE_CHECKING:
     from claw_agent.memory.memory import Memory

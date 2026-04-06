@@ -36,3 +36,6 @@ Thumbs.db
 CLAW.local.md
 # Runtime memory data (not the source package claw_agent/memory/)
 /memory/
+
+# Documentation
+docs/

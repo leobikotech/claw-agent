@@ -20,11 +20,31 @@ Most agent frameworks are either too toy-like or over-encapsulated. This project
 - **Provider Agnostic** — Same workflow across OpenAI, Claude, Gemini, DeepSeek, MiniMax, Kimi, Qwen
 - **Industrial-Grade** — Async multi-agent coordination, security sandbox, auto-compact, persistent memory
 - **Transparent** — No black boxes. Standard `asyncio`, clean dataclasses, no magic AST hacks
+- **Production-Ready** — Gracefully handles API failures, 413 errors, context limits, and orphan tool states
 - **Extensible** — `PromptBuilder` decouples framework guardrails from your domain logic cleanly
 
 ---
 
 ## Core Features
+
+### 4-Layer Compression Pipeline
+Zero-cost memory management mirroring Claude Code's tiered approach:
+1. **Snip Compact**: Silently drops oldest non-essential context.
+2. **Micro Compact**: Truncates oversized tool results (>2000 tokens) to save bandwidth.
+3. **Auto Compact**: Generates synthetic LLM summaries when context nears window limits.
+4. **Reactive Recovery**: Intercepts 413 `prompt_too_long` errors mid-flight and triggers emergency compaction.
+
+### Parallel Tool Execution
+Maximizes throughput by executing multiple independent tool calls simultaneously via `asyncio.gather`. Fully hook-aware, preserving execution order and reducing overall latency for multi-step observations.
+
+### Multi-Stage Error Recovery
+Built for continuous operation without crashing:
+- **Max Output "Nudges"**: Automatically detects when the LLM truncates due to `max_tokens` limits and prompts it to continue.
+- **Orphan Tool Handling**: Injects synthetic errors for unfulfilled `tool_use` blocks to prevent API rejection on subsequent turns.
+- **Model Fallback**: Automatically cascades to cheaper/fallback models on rate limits or API outages.
+
+### Agent Sandboxing
+Granular `AgentType` (WORKER vs INNER) isolation blocks unsafe tools (like arbitrary shell execution) for internal extraction agents while preserving full capability for task-oriented workers.
 
 ### Engine Loop & Streaming Re-entry
 The async `Engine` orchestrates the LLM ↔ Tool loop. When background workers are still running, the engine **suspends** rather than exiting — awaiting worker notifications via `asyncio.Queue`, then re-entering the LLM loop automatically.

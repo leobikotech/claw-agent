@@ -20,11 +20,31 @@
 - **供应商无关** — 同一套工作流无缝驱动 OpenAI、Claude、Gemini、DeepSeek、MiniMax、Kimi、Qwen
 - **工业级** — 异步多代理协调、安全沙箱、自动压缩、持久化记忆
 - **透明** — 无黑盒。标准 `asyncio`，干净的 dataclass，无魔法 AST 拦截
+- **生产就绪** — 优雅处理 API 失败、413 错误、上下文超限和工具结果孤儿状态
 - **可扩展** — `PromptBuilder` 将框架护栏与你的业务逻辑彻底解耦
 
 ---
 
 ## 核心特性
+
+### 4 层上下文压缩管道 (4-Layer Compression)
+对标 Claude Code 架构的零成本上下文截断与内存管理：
+1. **Snip Compact**: 截断最早的非关键上下文。
+2. **Micro Compact**: 截断超大工具返回结果（>2000 tokens）以节省带宽。
+3. **Auto Compact**: 当上下文接近窗口上限时，自动调用大模型生成摘要替换完整历史。
+4. **Reactive Recovery**: 拦截 API 返回的 413 `prompt_too_long` 错误并在飞行途中紧急触发环境精简。
+
+### 并行工具执行 (Parallel Execution)
+通过 `asyncio.gather` 并发执行多个独立的工具调用，以最大化吞吐量。同时支持全链条钩子（Hook）感知，在保留执行顺序的同时显著降低复杂观测任务的延迟。
+
+### 多级错误恢复 (Error Recovery)
+专为 7x24 小时无人值守运行设计，杜绝崩溃：
+- **Max Output "Nudges"**: 当 LLM 因为 `max_tokens` 限制截断时，自动感知并推挤（Nudge）其继续输出。
+- **孤儿工具处理 (Orphan Tool Recovery)**: 为未满足的 `tool_use` 块注入合成错误，防止下一次请求被 API 严格校验拒绝。
+- **模型回退 (Model Fallback)**: 遭遇死锁、速率限制或宕机时，自动级联到备用的 cheaper/fallback 模型。
+
+### 智能体沙箱 (Agent Sandboxing)
+细粒度的 `AgentType`（WORKER vs INNER）安全隔离体系。内部提取（Inner） Agent 的不安全工具（例如任意 Shell 脚本执行 `bash`）直接静默拦截，全功能（Worker） Agent 不受影响。
 
 ### Engine 循环与流式重入
 异步 `Engine` 编排 LLM ↔ 工具循环。当后台 Worker 仍在运行时，引擎**挂起**而非退出——通过 `asyncio.Queue` 等待 Worker 通知，然后自动重新进入 LLM 循环。

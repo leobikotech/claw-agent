@@ -298,6 +298,7 @@ class SessionPersistence:
                 from claw_agent.core.engine import Engine
                 from claw_agent.core.messages import messages_to_api
                 from claw_agent.tools.file_tools import FileReadTool, FileEditTool
+                from claw_agent.core.tool import ToolContext
                 import os
 
                 class RestrictedFileEditTool(FileEditTool):
@@ -307,11 +308,11 @@ class SessionPersistence:
                         self.allowed_path = os.path.abspath(allowed_path)
                         self.description = f"Overridden file_edit tool. You may ONLY edit {self.allowed_path}."
 
-                    def execute(self, **kwargs) -> Any:
-                        path_arg = kwargs.get("file_path", "")
+                    async def call(self, arguments: dict[str, Any], context: ToolContext) -> str:
+                        path_arg = arguments.get("file_path", "")
                         if not path_arg or os.path.abspath(path_arg) != self.allowed_path:
                             return f"Error: Permission denied. You are only allowed to edit exactly {self.allowed_path}."
-                        return super().execute(**kwargs)
+                        return await super().call(arguments, context)
 
                 # Create restricted tool set (only file read + sandboxed edit)
                 tools = [FileReadTool(), RestrictedFileEditTool(notes_path)]

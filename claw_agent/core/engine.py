@@ -38,38 +38,87 @@ from claw_agent.instructions.prompts import PromptBuilder
 from claw_agent.memory.compact import (
     auto_compact_if_needed,
     CompactTrackingState,
+    reactive_compact,
+    run_pre_compact_pipeline,
 )
 
 logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────
-# Retry configuration — maps to categorizeRetryableAPIError in services/api/errors.ts
+# Retry + Error Classification
+# Maps to: categorizeRetryableAPIError + isPromptTooLong in services/api/errors.ts
 # ────────────────────────────────────────────────────────────────
 
 MAX_RETRIES = 3
 INITIAL_BACKOFF_S = 1.0
 MAX_BACKOFF_S = 30.0
 
-# Retryable error strings (rate limits, overloaded, network)
-RETRYABLE_ERROR_PATTERNS = [
-    "rate_limit",
-    "overloaded",
-    "429",
-    "503",
-    "502",
-    "timeout",
-    "connection",
-    "temporarily unavailable",
+# Max output token recovery nudge message (from query.ts:1226)
+MAX_OUTPUT_NUDGE = (
+    "Output token limit hit. Resume directly — no apology, no recap of what "
+    "you were doing. Pick up mid-thought if that is where the cut happened. "
+    "Break remaining work into smaller pieces."
+)
+
+# Error pattern lists for classification
+RETRYABLE_PATTERNS = [
+    "rate_limit", "overloaded", "429", "503", "502",
+    "timeout", "connection", "temporarily unavailable",
+]
+PROMPT_TOO_LONG_PATTERNS = [
+    "prompt_too_long", "prompt is too long", "413",
+    "maximum context length", "context_length_exceeded",
+    "request too large", "too many tokens",
 ]
 
 
-def _is_retryable_error(error: Exception) -> bool:
-    """Check if an API error is transient and should be retried.
-    Maps to: categorizeRetryableAPIError() in services/api/errors.ts
+def _classify_api_error(error: Exception) -> str:
+    """Classify API error for recovery routing.
+    Maps to: categorizeRetryableAPIError() + isPromptTooLong() in query.ts
+
+    Returns: 'retryable' | 'prompt_too_long' | 'fatal'
     """
     err_str = str(error).lower()
-    return any(pattern in err_str for pattern in RETRYABLE_ERROR_PATTERNS)
+    if any(p in err_str for p in PROMPT_TOO_LONG_PATTERNS):
+        return "prompt_too_long"
+    if any(p in err_str for p in RETRYABLE_PATTERNS):
+        return "retryable"
+    return "fatal"
+
+
+def _fill_missing_tool_results(messages: list) -> list:
+    """Ensure every tool_use (assistant with tool_calls) has matching tool_results.
+    Maps to: yieldMissingToolResultBlocks() in query.ts:984
+
+    Prevents API rejection due to orphaned tool_use blocks when errors
+    occur between tool_use emission and tool_result generation.
+    """
+    # Collect all tool_call IDs from assistant messages
+    pending_ids: set[str] = set()
+    for msg in messages:
+        if hasattr(msg, 'tool_calls'):
+            for tc in msg.tool_calls:
+                pending_ids.add(tc.id if hasattr(tc, 'id') else tc.get('id', ''))
+        if hasattr(msg, 'tool_call_id'):
+            pending_ids.discard(msg.tool_call_id)
+        elif isinstance(msg, dict) and msg.get('role') == 'tool':
+            pending_ids.discard(msg.get('tool_call_id', ''))
+
+    # Fill missing results
+    if not pending_ids:
+        return messages
+
+    from claw_agent.core.messages import ToolResult as TR
+    filled = list(messages)
+    for tid in pending_ids:
+        filled.append(TR(
+            tool_call_id=tid,
+            content="[Tool execution interrupted]",
+            is_error=True,
+        ))
+    logger.warning(f"Filled {len(pending_ids)} missing tool_result(s) for orphaned tool_use blocks")
+    return filled
 
 
 # ────────────────────────────────────────────────────────────────
@@ -244,30 +293,37 @@ class Engine:
         self,
         api_messages: list[dict],
         tool_defs: Optional[list[dict]],
+        *,
+        max_tokens_override: Optional[int] = None,
     ) -> Any:
-        """Call LLM with retry + exponential backoff on transient errors.
-        Maps to: retry logic in query.ts error handling
+        """Call LLM with retry, backoff, and model fallback.
+        Maps to: retry logic + FallbackTriggeredError in query.ts
         """
         last_error = None
+        current_model = self.config.effective_model
+        max_tok = max_tokens_override or self.config.max_tokens
 
         for attempt in range(MAX_RETRIES + 1):
             if self.aborted:
                 raise RuntimeError("Engine aborted")
 
             try:
-                response = await self._provider.chat(
+                return await self._provider.chat(
                     messages=api_messages,
                     tools=tool_defs,
-                    model=self.config.effective_model,
-                    max_tokens=self.config.max_tokens,
+                    model=current_model,
+                    max_tokens=max_tok,
                     temperature=self.config.temperature,
                 )
-                return response
-
             except Exception as e:
                 last_error = e
-                if attempt < MAX_RETRIES and _is_retryable_error(e):
-                    # Exponential backoff with jitter
+                err_class = _classify_api_error(e)
+
+                if err_class == "prompt_too_long":
+                    # Don't retry — let engine handle via reactive compact
+                    raise
+
+                if err_class == "retryable" and attempt < MAX_RETRIES:
                     backoff = min(
                         INITIAL_BACKOFF_S * (2 ** attempt) + random.uniform(0, 1),
                         MAX_BACKOFF_S,
@@ -277,10 +333,68 @@ class Engine:
                         f"Retrying in {backoff:.1f}s..."
                     )
                     await asyncio.sleep(backoff)
-                else:
-                    raise
+                    continue
+
+                # Model fallback on final retry failure
+                if (
+                    self.config.fallback_model
+                    and current_model != self.config.fallback_model
+                    and attempt == MAX_RETRIES
+                ):
+                    logger.warning(
+                        f"Switching to fallback model '{self.config.fallback_model}' "
+                        f"after {attempt + 1} failures on '{current_model}'"
+                    )
+                    current_model = self.config.fallback_model
+                    # Fill any orphaned tool_use blocks before retry
+                    self.messages = _fill_missing_tool_results(self.messages)
+                    continue
+
+                raise
 
         raise last_error  # type: ignore
+
+    def _rebuild_messages_from_api(self, api_messages: list[dict]) -> list[Message]:
+        """Rebuild Message objects from API-format dicts.
+
+        Used after compact (snip/micro/reactive) modifies the API-format
+        message list. Preserves the system prompt from self.messages[0].
+        """
+        system_prompt = self._build_system_prompt()
+        rebuilt: list[Message] = [SystemMessage(system_prompt)]
+
+        for nm in api_messages:
+            role = nm.get("role", "user")
+            if role == "system":
+                continue  # Skip — we already prepend our own system prompt
+            elif role == "user":
+                rebuilt.append(UserMessage(nm.get("content", "")))
+            elif role == "assistant":
+                tc_list = []
+                for tc in nm.get("tool_calls", []):
+                    if isinstance(tc, dict):
+                        fn = tc.get("function", {})
+                        args = fn.get("arguments", "{}")
+                        tc_list.append(ToolCall(
+                            id=tc.get("id", ""),
+                            name=fn.get("name", ""),
+                            arguments=json.loads(args) if isinstance(args, str) else args,
+                        ))
+                    else:
+                        tc_list.append(tc)
+                rebuilt.append(AssistantMessage(
+                    content=nm.get("content"),
+                    tool_calls=tc_list,
+                ))
+            elif role == "tool":
+                rebuilt.append(ToolResult(
+                    tool_call_id=nm.get("tool_call_id", ""),
+                    content=nm.get("content", ""),
+                ))
+            else:
+                rebuilt.append(UserMessage(nm.get("content", "")))
+
+        return rebuilt
 
     def _drain_event_queue(self) -> list[str]:
         """Non-blocking drain of all currently-queued events.
@@ -424,13 +538,16 @@ class Engine:
                 yield {"type": "error", "content": "Engine aborted by user"}
                 return
 
-            # --- 1. Auto-compact check ---
+            # --- 1. Pre-compact pipeline: snip + micro (zero API cost) ---
             api_messages = messages_to_api(self.messages)
-            # --- PRE_COMPACT hook ---
-            compact_ctx = HookContext(
-                messages=list(self.messages),
-                engine=self,
-            )
+            api_messages, pre_changed = run_pre_compact_pipeline(api_messages)
+            if pre_changed:
+                self.messages = self._rebuild_messages_from_api(api_messages)
+
+            # --- 2. Auto-compact check (SM compact → Legacy LLM compact) ---
+            api_messages = messages_to_api(self.messages)
+            # PRE_COMPACT hook
+            compact_ctx = HookContext(messages=list(self.messages), engine=self)
             await self.hook_manager.execute(HookEvent.PRE_COMPACT, compact_ctx)
 
             new_messages, was_compacted = await auto_compact_if_needed(
@@ -441,55 +558,18 @@ class Engine:
                 session_persistence=self.session_persistence,
             )
             if was_compacted:
-                # Replace conversation history with compacted messages.
-                # SM compact returns [summary, ...recent_messages] — we must
-                # preserve ALL of them, not just the summary.
-                system_prompt = self._build_system_prompt()
-                rebuilt: list[Message] = [SystemMessage(system_prompt)]
-                for nm in new_messages:
-                    role = nm.get("role", "user")
-                    if role == "user":
-                        rebuilt.append(UserMessage(nm["content"]))
-                    elif role == "assistant":
-                        tool_calls_raw = nm.get("tool_calls", [])
-                        tc_list = []
-                        for tc in tool_calls_raw:
-                            if isinstance(tc, dict):
-                                fn = tc.get("function", {})
-                                args = fn.get("arguments", "{}")
-                                tc_list.append(ToolCall(
-                                    id=tc.get("id", ""),
-                                    name=fn.get("name", ""),
-                                    arguments=json.loads(args) if isinstance(args, str) else args,
-                                ))
-                            else:
-                                tc_list.append(tc)
-                        rebuilt.append(AssistantMessage(
-                            content=nm.get("content"),
-                            tool_calls=tc_list,
-                        ))
-                    elif role == "tool":
-                        rebuilt.append(ToolResult(
-                            tool_call_id=nm.get("tool_call_id", ""),
-                            content=nm.get("content", ""),
-                        ))
-                    else:
-                        rebuilt.append(UserMessage(nm.get("content", "")))
-                self.messages = rebuilt
+                self.messages = self._rebuild_messages_from_api(new_messages)
                 yield {
                     "type": "compact",
                     "content": "Conversation compacted to stay within context window.",
                 }
                 api_messages = messages_to_api(self.messages)
 
-                # --- POST_COMPACT hook ---
-                post_compact_ctx = HookContext(
-                    messages=list(self.messages),
-                    engine=self,
-                )
+                # POST_COMPACT hook
+                post_compact_ctx = HookContext(messages=list(self.messages), engine=self)
                 await self.hook_manager.execute(HookEvent.POST_COMPACT, post_compact_ctx)
 
-            # --- 2. Check Event Queue (non-blocking fast path) ---
+            # --- 3. Check Event Queue (non-blocking fast path) ---
             pending_events = self._drain_event_queue()
             if pending_events:
                 for event_msg in pending_events:
@@ -498,11 +578,32 @@ class Engine:
                     yield {"type": "worker_notification", "content": event_msg}
                 api_messages = messages_to_api(self.messages)
 
-            # --- 3. Call LLM via Provider (with retry) ---
+            # --- 4. Call LLM via Provider (with retry + error recovery) ---
             try:
                 tool_defs = self.registry.to_api() or None
                 response = await self._call_llm_with_retry(api_messages, tool_defs)
             except Exception as e:
+                err_class = _classify_api_error(e)
+
+                # --- Reactive Compact recovery (Layer 4) ---
+                if err_class == "prompt_too_long":
+                    logger.warning("Engine: prompt_too_long — attempting reactive compact")
+                    recovered = await reactive_compact(
+                        messages=api_messages,
+                        model=self.config.effective_model,
+                        provider=self._provider,
+                        tracking=self._compact_tracking,
+                    )
+                    if recovered:
+                        self.messages = self._rebuild_messages_from_api(recovered)
+                        yield {
+                            "type": "compact",
+                            "content": "Emergency compact: conversation compressed after prompt-too-long.",
+                        }
+                        continue  # Re-enter loop with compacted history
+
+                # All recovery exhausted
+                self.messages = _fill_missing_tool_results(self.messages)
                 yield {"type": "error", "content": f"API error: {e}"}
                 return
 
@@ -533,30 +634,37 @@ class Engine:
             )
             self.messages.append(assistant_msg)
 
-            # --- 5. No tool calls → check for background tasks (streaming re-entry) ---
+            # --- 6. No tool calls → check finish_reason + background tasks ---
             if not assistant_msg.tool_calls:
+                # --- Max output token recovery (maps to query.ts:1185-1252) ---
+                if (
+                    response.finish_reason == "length"
+                    and self._compact_tracking.max_output_recovery_count
+                    < self.config.max_output_recovery_limit
+                ):
+                    self._compact_tracking.max_output_recovery_count += 1
+                    attempt = self._compact_tracking.max_output_recovery_count
+                    logger.info(
+                        f"Max output tokens hit — nudge recovery attempt "
+                        f"{attempt}/{self.config.max_output_recovery_limit}"
+                    )
+                    self.messages.append(UserMessage(content=MAX_OUTPUT_NUDGE))
+                    if assistant_msg.content:
+                        yield {"type": "partial", "content": assistant_msg.content}
+                    continue  # Re-enter LLM loop
+
                 if not self.has_pending_background_tasks():
                     # --- STOP hook (turn end) ---
-                    # This is where auto-dream fires (fire-and-forget).
-                    # Maps to: handleStopHooks() → executeAutoDream() in stopHooks.ts
-                    stop_ctx = HookContext(
-                        messages=list(self.messages),
-                        engine=self,
-                    )
-                    stop_results = await self.hook_manager.execute(
-                        HookEvent.STOP, stop_ctx
-                    )
+                    stop_ctx = HookContext(messages=list(self.messages), engine=self)
+                    stop_results = await self.hook_manager.execute(HookEvent.STOP, stop_ctx)
 
-                    # Check if any stop hook blocked continuation
                     for sr in stop_results:
                         if sr.blocking_error:
-                            yield {
-                                "type": "error",
-                                "content": f"Stop hook blocked: {sr.blocking_error}",
-                            }
+                            yield {"type": "error", "content": f"Stop hook blocked: {sr.blocking_error}"}
                             return
 
-                    # No background tasks — genuinely done
+                    # Reset max_output counter on clean exit
+                    self._compact_tracking.max_output_recovery_count = 0
                     yield {"type": "done", "content": assistant_msg.content or ""}
                     return
 
@@ -574,110 +682,114 @@ class Engine:
                 # Events injected into self.messages → re-enter LLM loop
                 continue
 
-            # --- 6. Execute tool calls ---
+            # --- 7. Execute tool calls (parallel or sequential) ---
             ctx = ToolContext(
                 cwd=self.config.cwd,
                 config=self.config,
                 messages=self.messages,
                 aborted=self.aborted,
-                engine=self,  # Back-reference for background task registration
+                engine=self,
             )
 
-            for tc in assistant_msg.tool_calls:
-                # Abort check between tool calls
-                if self.aborted:
-                    yield {"type": "error", "content": "Engine aborted during tool execution"}
-                    return
+            if self.config.parallel_tool_execution and len(assistant_msg.tool_calls) > 1:
+                # --- Parallel execution (maps to StreamingToolExecutor) ---
+                from claw_agent.core.streaming_executor import execute_tools_parallel
+                batch_results = await execute_tools_parallel(
+                    tool_calls=assistant_msg.tool_calls,
+                    registry=self.registry,
+                    ctx=ctx,
+                    hook_manager=self.hook_manager,
+                    permission_ctx=self.permission_ctx,
+                )
+                for _tc, result, events in batch_results:
+                    for ev in events:
+                        yield ev
+                    self.messages.append(result)
+            else:
+                # --- Sequential execution (original path) ---
+                for tc in assistant_msg.tool_calls:
+                    if self.aborted:
+                        self.messages = _fill_missing_tool_results(self.messages)
+                        yield {"type": "error", "content": "Engine aborted during tool execution"}
+                        return
 
-                yield {"type": "tool_call", "name": tc.name, "arguments": tc.arguments}
+                    yield {"type": "tool_call", "name": tc.name, "arguments": tc.arguments}
 
-                tool_instance = self.registry.find(tc.name)
-                if not tool_instance:
-                    result = ToolResult(
-                        tool_call_id=tc.id,
-                        content=f"Error: unknown tool '{tc.name}'",
-                        is_error=True,
-                    )
-                else:
-                    # --- PRE_TOOL_USE hook ---
-                    # Maps to: runPreToolUseHooks() in toolHooks.ts
-                    pre_ctx = HookContext(
-                        messages=list(self.messages),
-                        tool_name=tc.name,
-                        tool_input=tc.arguments,
-                        engine=self,
-                    )
-                    pre_results = await self.hook_manager.execute(
-                        HookEvent.PRE_TOOL_USE, pre_ctx
-                    )
-
-                    # Check if pre-hook blocked the tool
-                    blocked = False
-                    effective_args = tc.arguments
-                    for pr in pre_results:
-                        if pr.blocking_error:
-                            result = ToolResult(
-                                tool_call_id=tc.id,
-                                content=f"Blocked by hook: {pr.blocking_error}",
-                                is_error=True,
-                            )
-                            blocked = True
-                            break
-                        if pr.updated_input is not None:
-                            effective_args = pr.updated_input
-
-                    if blocked:
-                        self.messages.append(result)
-                        yield {"type": "tool_result", "name": tc.name, "content": result.content}
-                        continue
-
-                    # Permission check
-                    perm = check_permission(tool_instance, effective_args, self.permission_ctx)
-                    if not perm.allowed:
+                    tool_instance = self.registry.find(tc.name)
+                    if not tool_instance:
                         result = ToolResult(
                             tool_call_id=tc.id,
-                            content=f"Permission denied: {perm.reason}",
+                            content=f"Error: unknown tool '{tc.name}'",
                             is_error=True,
                         )
                     else:
-                        try:
-                            output = await tool_instance.call(effective_args, ctx)
-                            result = ToolResult(tool_call_id=tc.id, content=output)
+                        # PRE_TOOL_USE hook
+                        pre_ctx = HookContext(
+                            messages=list(self.messages),
+                            tool_name=tc.name,
+                            tool_input=tc.arguments,
+                            engine=self,
+                        )
+                        pre_results = await self.hook_manager.execute(
+                            HookEvent.PRE_TOOL_USE, pre_ctx
+                        )
 
-                            # --- POST_TOOL_USE hook ---
-                            # Maps to: runPostToolUseHooks() in toolHooks.ts
-                            post_ctx = HookContext(
-                                messages=list(self.messages),
-                                tool_name=tc.name,
-                                tool_input=effective_args,
-                                tool_output=output,
-                                engine=self,
-                            )
-                            await self.hook_manager.execute(
-                                HookEvent.POST_TOOL_USE, post_ctx
-                            )
+                        blocked = False
+                        effective_args = tc.arguments
+                        result: Optional[ToolResult] = None
+                        for pr in pre_results:
+                            if pr.blocking_error:
+                                result = ToolResult(
+                                    tool_call_id=tc.id,
+                                    content=f"Blocked by hook: {pr.blocking_error}",
+                                    is_error=True,
+                                )
+                                blocked = True
+                                break
+                            if pr.updated_input is not None:
+                                effective_args = pr.updated_input
 
-                        except Exception as e:
+                        if blocked and result is not None:
+                            self.messages.append(result)
+                            yield {"type": "tool_result", "name": tc.name, "content": result.content}
+                            continue
+
+                        perm = check_permission(tool_instance, effective_args, self.permission_ctx)
+                        if not perm.allowed:
                             result = ToolResult(
                                 tool_call_id=tc.id,
-                                content=f"Tool error: {e}",
+                                content=f"Permission denied: {perm.reason}",
                                 is_error=True,
                             )
-                            # --- POST_TOOL_FAILURE hook ---
-                            # Maps to: runPostToolUseFailureHooks() in toolHooks.ts
-                            fail_ctx = HookContext(
-                                messages=list(self.messages),
-                                tool_name=tc.name,
-                                tool_input=effective_args,
-                                tool_error=str(e),
-                                engine=self,
-                            )
-                            await self.hook_manager.execute(
-                                HookEvent.POST_TOOL_FAILURE, fail_ctx
-                            )
+                        else:
+                            try:
+                                output = await tool_instance.call(effective_args, ctx)
+                                result = ToolResult(tool_call_id=tc.id, content=output)
+                                post_ctx = HookContext(
+                                    messages=list(self.messages),
+                                    tool_name=tc.name,
+                                    tool_input=effective_args,
+                                    tool_output=output,
+                                    engine=self,
+                                )
+                                await self.hook_manager.execute(HookEvent.POST_TOOL_USE, post_ctx)
+                            except Exception as e:
+                                result = ToolResult(
+                                    tool_call_id=tc.id,
+                                    content=f"Tool error: {e}",
+                                    is_error=True,
+                                )
+                                fail_ctx = HookContext(
+                                    messages=list(self.messages),
+                                    tool_name=tc.name,
+                                    tool_input=effective_args,
+                                    tool_error=str(e),
+                                    engine=self,
+                                )
+                                await self.hook_manager.execute(HookEvent.POST_TOOL_FAILURE, fail_ctx)
 
-                self.messages.append(result)
-                yield {"type": "tool_result", "name": tc.name, "content": result.content}
+                    self.messages.append(result)
+                    yield {"type": "tool_result", "name": tc.name, "content": result.content}
 
             # Loop continues: tool results added → next LLM call
 
@@ -715,6 +827,9 @@ class Engine:
         Maps to: findRelevantMemories + attachment injection in QueryEngine.ts
         """
         try:
+            if not self.memory:
+                return ""
+            
             relevant = await self.memory.find_relevant(
                 query=query,
                 provider=self._provider,

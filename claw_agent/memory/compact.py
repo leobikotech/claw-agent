@@ -1,17 +1,18 @@
 """
-Compact — 上下文压缩服务
-Maps to: src/services/compact/ (autoCompact.ts, compact.ts, prompt.ts)
+Compact — 四层上下文压缩管道
+Maps to: src/services/compact/ (snipCompact, microCompact, autoCompact, reactiveCompact)
 
-Automatically compresses conversation history when approaching context window
-limits, using the LLM itself to generate structured summaries.
+Four-layer compression pipeline, from lightest to heaviest:
+  1. Snip Compact   — zero-cost trimming of oldest messages (no API call)
+  2. Micro Compact  — truncate oversized tool results (no API call)
+  3. Auto Compact   — SM compact (session notes) or Legacy LLM compact (API call)
+  4. Reactive Compact — emergency 413 prompt-too-long recovery (API call)
 
-Architecture:
-  1. Token estimation (tokens.py) → check threshold
-  2. If above threshold → build compact prompt → LLM generates <analysis>+<summary>
-  3. Replace old messages with compact summary user message
-  4. Continue conversation with compressed history
+Engine calls layers 1-3 proactively each turn; layer 4 is triggered only
+when _call_llm_with_retry catches a prompt_too_long error.
 """
 from __future__ import annotations
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from typing import Any, Optional
 
 from claw_agent.providers.tokens import (
     estimate_tokens_messages,
+    estimate_tokens_text,
     get_context_window,
 )
 
@@ -44,6 +46,22 @@ MANUAL_COMPACT_BUFFER = 3_000
 # Circuit breaker: stop after N consecutive failures
 MAX_CONSECUTIVE_FAILURES = 3
 
+# ── Snip Compact constants (maps to snipCompact.ts) ──
+SNIP_MESSAGE_THRESHOLD = 60       # Start snipping when messages exceed this
+SNIP_KEEP_RECENT = 40             # Always keep the most recent N messages
+SNIP_BOUNDARY = "[Earlier conversation history was trimmed to save context space.]"
+
+# ── Micro Compact constants (maps to microCompact.ts) ──
+MICRO_COMPACT_KEEP_RECENT = 5     # Keep last N tool results intact
+MICRO_COMPACT_MAX_TOKENS = 2000   # Max tokens per old tool result before truncation
+MICRO_COMPACT_CLEARED_MSG = "[Old tool result content cleared]"
+
+# Tools eligible for micro compact (maps to COMPACTABLE_TOOLS in microCompact.ts)
+COMPACTABLE_TOOLS = {
+    "bash", "read_file", "grep", "glob",
+    "web_search", "web_fetch", "edit_file", "write_file",
+}
+
 
 # ────────────────────────────────────────────────────────────────
 # Tracking state — maps to AutoCompactTrackingState
@@ -55,6 +73,8 @@ class CompactTrackingState:
     compacted: bool = False
     turn_counter: int = 0
     consecutive_failures: int = 0
+    has_attempted_reactive: bool = False    # 413 recovery guard (1-shot)
+    max_output_recovery_count: int = 0      # nudge retry counter
 
 
 # ────────────────────────────────────────────────────────────────
@@ -656,3 +676,213 @@ def _serialize_conversation_for_compact(messages: list[dict[str, Any]]) -> str:
         parts.append(f"--- {role} ---\n{content}{tc_summary}")
 
     return "\n\n".join(parts)
+
+
+# ────────────────────────────────────────────────────────────────
+# Layer 1: Snip Compact — maps to snipCompact.ts
+# ────────────────────────────────────────────────────────────────
+
+def snip_old_messages(
+    messages: list[dict[str, Any]],
+    *,
+    max_messages: int = SNIP_MESSAGE_THRESHOLD,
+    keep_recent: int = SNIP_KEEP_RECENT,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Trim oldest messages beyond threshold, zero API cost.
+    Maps to: snipMessages() in snipCompact.ts
+
+    Preserves tool_use/tool_result pairing by adjusting the cut point
+    forward past any orphaned tool_result messages.
+
+    Returns (new_messages, was_snipped).
+    """
+    if len(messages) <= max_messages:
+        return messages, False
+
+    cut_at = len(messages) - keep_recent
+
+    # Don't snip the system prompt (index 0)
+    cut_at = max(cut_at, 1)
+
+    # Adjust forward to avoid splitting tool_use/tool_result pairs
+    while cut_at < len(messages) and messages[cut_at].get("role") == "tool":
+        cut_at += 1
+
+    if cut_at <= 1 or cut_at >= len(messages):
+        return messages, False
+
+    # Build: [system_prompt] + [snip_boundary] + [kept_messages]
+    snipped = [messages[0]]  # Preserve system prompt
+    snipped.append({"role": "user", "content": SNIP_BOUNDARY})
+    snipped.extend(messages[cut_at:])
+
+    snipped_count = cut_at - 1  # Exclude system prompt from count
+    logger.info(f"snip_compact: trimmed {snipped_count} old messages, keeping {len(snipped) - 2}")
+
+    return snipped, True
+
+
+# ────────────────────────────────────────────────────────────────
+# Layer 2: Micro Compact — maps to microCompact.ts
+# ────────────────────────────────────────────────────────────────
+
+def _extract_tool_name_for_call_id(
+    messages: list[dict[str, Any]],
+    tool_call_id: str,
+) -> Optional[str]:
+    """Walk backwards through messages to find the tool name for a call ID."""
+    for msg in reversed(messages):
+        for tc in msg.get("tool_calls", []):
+            tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+            tc_fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+            tc_name = tc_fn.get("name") if isinstance(tc_fn, dict) else None
+            if tc_id == tool_call_id and tc_name:
+                return tc_name
+    return None
+
+
+def micro_compact_tool_results(
+    messages: list[dict[str, Any]],
+    *,
+    keep_recent: int = MICRO_COMPACT_KEEP_RECENT,
+    max_result_tokens: int = MICRO_COMPACT_MAX_TOKENS,
+) -> tuple[list[dict[str, Any]], int]:
+    """Compress old/large tool results. Zero API cost.
+    Maps to: microcompactMessages() in microCompact.ts
+
+    Scans tool results from oldest to newest. Keeps the most recent
+    `keep_recent` results intact; older ones are replaced with a
+    cleared placeholder if they exceed `max_result_tokens`.
+
+    Returns (new_messages, tokens_saved).
+    """
+    # Collect indices of all tool result messages
+    tool_result_indices: list[int] = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "tool":
+            tool_name = _extract_tool_name_for_call_id(
+                messages[:i], msg.get("tool_call_id", "")
+            )
+            if tool_name in COMPACTABLE_TOOLS:
+                tool_result_indices.append(i)
+
+    if len(tool_result_indices) <= keep_recent:
+        return messages, 0
+
+    # Indices eligible for compaction (all except the most recent N)
+    compact_indices = set(tool_result_indices[:-keep_recent])
+
+    tokens_saved = 0
+    new_messages = []
+    for i, msg in enumerate(messages):
+        if i in compact_indices:
+            content = msg.get("content", "")
+            content_tokens = estimate_tokens_text(str(content))
+            if content_tokens > max_result_tokens and content != MICRO_COMPACT_CLEARED_MSG:
+                tokens_saved += content_tokens
+                new_messages.append({**msg, "content": MICRO_COMPACT_CLEARED_MSG})
+                continue
+        new_messages.append(msg)
+
+    if tokens_saved > 0:
+        logger.info(
+            f"micro_compact: cleared {len(compact_indices)} old tool results, "
+            f"saved ~{tokens_saved} tokens"
+        )
+
+    return new_messages, tokens_saved
+
+
+# ────────────────────────────────────────────────────────────────
+# Layer 4: Reactive Compact — maps to reactiveCompact.ts
+# ────────────────────────────────────────────────────────────────
+
+async def reactive_compact(
+    messages: list[dict[str, Any]],
+    model: str,
+    provider: Any,  # LLMProvider
+    tracking: Optional[CompactTrackingState] = None,
+) -> Optional[list[dict[str, Any]]]:
+    """Emergency compaction on 413/prompt-too-long. Last resort.
+    Maps to: tryReactiveCompact() in reactiveCompact.ts
+
+    Called by Engine when LLM returns a prompt_too_long error.
+    Uses the same compact prompt as legacy LLM compact but forces
+    the operation regardless of threshold checks.
+
+    Returns new_messages on success, None if cannot recover.
+    """
+    if tracking and tracking.has_attempted_reactive:
+        logger.warning("reactive_compact: already attempted this turn, giving up")
+        return None
+
+    logger.warning("reactive_compact: 413 prompt-too-long — attempting emergency compact")
+
+    try:
+        compact_prompt = get_compact_prompt()
+        compact_messages = [
+            {"role": "system", "content": compact_prompt},
+            {"role": "user", "content": _serialize_conversation_for_compact(messages)},
+        ]
+
+        response = await provider.chat(
+            messages=compact_messages,
+            tools=None,
+            model=model,
+            max_tokens=MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+            temperature=0.0,
+        )
+
+        if not response.content:
+            return None
+
+        summary_text = get_compact_user_summary_message(
+            response.content, suppress_followup=True,
+        )
+
+        new_messages = [{"role": "user", "content": summary_text}]
+
+        if tracking:
+            tracking.has_attempted_reactive = True
+            tracking.compacted = True
+            tracking.consecutive_failures = 0
+
+        logger.info(
+            f"reactive_compact: compressed {len(messages)} messages → 1 summary "
+            f"(~{estimate_tokens_messages(new_messages)} tokens)"
+        )
+        return new_messages
+
+    except Exception as e:
+        logger.error(f"reactive_compact failed: {e}")
+        if tracking:
+            tracking.has_attempted_reactive = True
+        return None
+
+
+# ────────────────────────────────────────────────────────────────
+# Pipeline: Lightweight pre-compact (snip + micro)
+# Called by Engine BEFORE auto_compact_if_needed
+# ────────────────────────────────────────────────────────────────
+
+def run_pre_compact_pipeline(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Run zero-cost compression layers before auto-compact.
+    Maps to: snipCompact + microCompact in query.ts main loop
+
+    Returns (new_messages, any_changes).
+    """
+    changed = False
+
+    # Layer 1: Snip oldest messages
+    messages, snipped = snip_old_messages(messages)
+    if snipped:
+        changed = True
+
+    # Layer 2: Micro compact tool results
+    messages, tokens_saved = micro_compact_tool_results(messages)
+    if tokens_saved > 0:
+        changed = True
+
+    return messages, changed

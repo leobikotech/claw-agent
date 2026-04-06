@@ -30,6 +30,13 @@ class Config:
     temperature: float = 0.0
     cwd: str = field(default_factory=os.getcwd)  # Working directory / 工作目录
 
+    # --- Error recovery (maps to query.ts error handling) ---
+    fallback_model: Optional[str] = None      # Switch to this model on repeated failures
+    max_output_recovery_limit: int = 3        # Max nudge retries on finish_reason=length
+
+    # --- Tool execution ---
+    parallel_tool_execution: bool = True      # Run independent tool calls concurrently
+
     # --- Permissions (maps to PermissionMode in Tool.ts) ---
     permission_mode: str = "default"  # default | auto | yolo
 

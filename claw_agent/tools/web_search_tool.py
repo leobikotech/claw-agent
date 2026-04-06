@@ -55,7 +55,7 @@ class SearchHit:
     score: float = 0.0         # Relevance score (0-1, backend dependent)
 
     def to_dict(self) -> dict:
-        d = {"title": self.title, "url": self.url, "snippet": self.snippet}
+        d: dict[str, Any] = {"title": self.title, "url": self.url, "snippet": self.snippet}
         if self.content:
             d["content"] = self.content
         if self.score:

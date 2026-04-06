@@ -155,25 +155,21 @@ def tool(
 
     def decorator(fn: Callable) -> Tool:
         class FnTool(Tool):
-            pass
+            def __init__(self):
+                self.name = name
+                self.description = description or fn.__doc__ or ""
+                self.risk_level = risk_level
+                self.is_read_only = is_read_only
+                self._parameters = parameters or {"type": "object", "properties": {}}
+                self._fn = fn
+
+            def get_parameters(self) -> dict:
+                return self._parameters
+
+            async def call(self, arguments: dict[str, Any], context: ToolContext) -> str:
+                return await self._fn(arguments, context)
 
         instance = FnTool()
-        instance.name = name
-        instance.description = description or fn.__doc__ or ""
-        instance.risk_level = risk_level
-        instance.is_read_only = is_read_only
-        instance._parameters = parameters or {"type": "object", "properties": {}}
-        instance._fn = fn  # type: ignore
-
-        def get_parameters(self_inner) -> dict:
-            return self_inner._parameters
-
-        async def call_fn(self_inner, arguments: dict[str, Any], context: ToolContext) -> str:
-            return await self_inner._fn(arguments, context)
-
-        instance.get_parameters = get_parameters.__get__(instance)  # type: ignore
-        instance.call = call_fn.__get__(instance)  # type: ignore
-
         reg.register(instance)
         return instance
 

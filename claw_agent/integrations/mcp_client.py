@@ -104,7 +104,7 @@ class MCPBridgeTool(Tool):
         parts = []
         for block in result.content:
             if hasattr(block, "text"):
-                parts.append(block.text)
+                parts.append(getattr(block, "text"))
             else:
                 parts.append(str(block))
         return "\n".join(parts) if parts else "(empty result)"
@@ -251,7 +251,8 @@ class MCPManager:
         Maps to: client.getInstructions() + MAX_MCP_DESCRIPTION_LENGTH truncation in client.ts
         """
         try:
-            raw = session.server_info.instructions if session.server_info else None
+            server_info = getattr(session, "server_info", None)
+            raw = getattr(server_info, "instructions", None) if server_info else None
             if raw:
                 self._server_instructions[name] = _truncate_description(raw)
                 logger.info(
@@ -332,7 +333,8 @@ class MCPManager:
         for name, session in targets.items():
             try:
                 # Check if server supports resources capability
-                caps = session.server_info.capabilities if session.server_info else None
+                server_info = getattr(session, "server_info", None)
+                caps = getattr(server_info, "capabilities", None) if server_info else None
                 if caps and not getattr(caps, 'resources', None):
                     continue
 
@@ -364,13 +366,14 @@ class MCPManager:
         if not session:
             raise ValueError(f"MCP server '{server_name}' not connected")
 
-        result = await session.read_resource(uri)
+        result = await session.read_resource(uri)  # type: ignore[arg-type]
         parts = []
         for block in result.contents:
             if hasattr(block, "text"):
-                parts.append(block.text)
+                parts.append(getattr(block, "text"))
             elif hasattr(block, "blob"):
-                parts.append(f"[binary data: {len(block.blob)} bytes]")
+                blob = getattr(block, "blob")
+                parts.append(f"[binary data: {len(blob)} bytes]")
             else:
                 parts.append(str(block))
         return "\n".join(parts) if parts else "(empty resource)"

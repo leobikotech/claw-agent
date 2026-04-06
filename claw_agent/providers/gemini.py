@@ -88,7 +88,7 @@ class GeminiProvider(LLMProvider):
         config = types.GenerateContentConfig(
             temperature=kwargs.get("temperature", 0.0),
             max_output_tokens=kwargs.get("max_tokens", 4096),
-            tools=gemini_tools,
+            tools=gemini_tools,  # type: ignore[arg-type]
         )
         if system_instruction:
             config.system_instruction = system_instruction
@@ -105,16 +105,18 @@ class GeminiProvider(LLMProvider):
         content_text = ""
         tool_calls = []
         if response.candidates:
-            for part in response.candidates[0].content.parts:
-                if part.text:
-                    content_text += part.text
-                elif part.function_call:
-                    fc = part.function_call
-                    tool_calls.append(LLMToolCall(
-                        id=f"gemini_{fc.name}_{id(fc)}",
-                        name=fc.name,
-                        arguments=dict(fc.args) if fc.args else {},
-                    ))
+            parts = getattr(response.candidates[0].content, "parts", [])
+            if parts:
+                for part in parts:
+                    if part.text:
+                        content_text += part.text
+                    elif part.function_call:
+                        fc = part.function_call
+                        tool_calls.append(LLMToolCall(
+                            id=f"gemini_{fc.name}_{id(fc)}",
+                            name=fc.name or "unknown",
+                            arguments=dict(fc.args) if fc.args else {},
+                        ))
 
         return LLMResponse(
             content=content_text or None,
