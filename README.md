@@ -97,11 +97,12 @@ Auto-discovered instruction files injected into the system prompt:
 Supports `@include` references, YAML frontmatter, and priority ordering.
 
 ### Web Search (Provider-Agnostic)
-4 pluggable backends — auto-detected from env vars:
+5 pluggable backends — auto-detected from env vars:
 
 | Backend | Env Var | Notes |
 |---------|---------|-------|
-| **Tavily** *(recommended)* | `TAVILY_API_KEY` | AI-optimized, 1000 free/month |
+| **Exa** | `EXA_API_KEY` | AI-native neural search, highlights + text in one call |
+| **Tavily** | `TAVILY_API_KEY` | AI-optimized, 1000 free/month |
 | **Brave Search** | `BRAVE_API_KEY` | Privacy-focused, 2000 free/month |
 | **SerpAPI** | `SERPAPI_API_KEY` | Google results via API |
 | **DuckDuckGo** | *(none)* | Zero-config fallback |
@@ -236,6 +237,7 @@ claw_agent/
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `GEMINI_API_KEY` | Google Gemini API key |
+| `EXA_API_KEY` | Exa search API key |
 | `TAVILY_API_KEY` | Tavily search API key |
 
 ---

@@ -97,11 +97,12 @@ Config(language="spanish")         # 代码配置
 支持 `@include` 引用、YAML frontmatter 和优先级排序。
 
 ### 网络搜索（供应商无关）
-4 个可插拔后端，从环境变量自动检测：
+5 个可插拔后端，从环境变量自动检测：
 
 | 后端 | 环境变量 | 说明 |
 |------|---------|------|
-| **Tavily**（推荐） | `TAVILY_API_KEY` | AI 优化，每月 1000 次免费 |
+| **Exa** | `EXA_API_KEY` | AI 原生神经搜索，一次调用返回正文与高亮 |
+| **Tavily** | `TAVILY_API_KEY` | AI 优化，每月 1000 次免费 |
 | **Brave Search** | `BRAVE_API_KEY` | 隐私优先，每月 2000 次免费 |
 | **SerpAPI** | `SERPAPI_API_KEY` | Google 结果 API |
 | **DuckDuckGo** | *（无需）* | 零配置后备 |
@@ -236,6 +237,7 @@ claw_agent/
 | `OPENAI_API_KEY` | OpenAI API 密钥 |
 | `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
 | `GEMINI_API_KEY` | Google Gemini API 密钥 |
+| `EXA_API_KEY` | Exa 搜索 API 密钥 |
 | `TAVILY_API_KEY` | Tavily 搜索 API 密钥 |
 
 ---
