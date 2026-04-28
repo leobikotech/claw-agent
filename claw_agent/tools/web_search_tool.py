@@ -7,10 +7,11 @@ which are provider-specific. This implementation provides the same
 capability via standard search APIs, making it work with ANY LLM provider.
 
 Supported backends (auto-detected from env vars):
-  1. Tavily   — AI-optimized search, returns extracted content (TAVILY_API_KEY)
-  2. Brave    — Privacy-focused, generous free tier (BRAVE_API_KEY)
-  3. SerpAPI  — Google results via API (SERPAPI_API_KEY)
-  4. DuckDuckGo — Zero config, no API key needed (fallback)
+  1. Exa      — AI-native neural search, returns extracted content (EXA_API_KEY)
+  2. Tavily   — AI-optimized search, returns extracted content (TAVILY_API_KEY)
+  3. Brave    — Privacy-focused, generous free tier (BRAVE_API_KEY)
+  4. SerpAPI  — Google results via API (SERPAPI_API_KEY)
+  5. DuckDuckGo — Zero config, no API key needed (fallback)
 
 Architecture / 架构:
   LLM → WebSearchTool.call(query) → SearchBackend → structured results
@@ -136,6 +137,124 @@ class SearchBackend(ABC):
     ) -> list[SearchHit]:
         """Execute a search query / 执行搜索查询"""
         ...
+
+
+# ────────────────────────────────────────────────────────────────
+# Backend: Exa — AI-native neural search with full content extraction
+# ────────────────────────────────────────────────────────────────
+
+class ExaBackend(SearchBackend):
+    """Exa Search API — neural search built for agents / 专为智能体设计的神经搜索
+
+    Embedding-based search that understands intent rather than keywords.
+    Returns extracted page text, highlights, and AI-generated summaries
+    in a single call — ideal for RAG and agent retrieval pipelines.
+    基于向量嵌入的搜索，可一次性返回正文、高亮片段与 AI 摘要。
+
+    Docs: https://exa.ai/docs/reference/search
+    """
+
+    name = "exa"
+
+    # Valid search types per current Exa API reference.
+    # `auto` intelligently blends neural + keyword; `fast` is low-latency;
+    # `neural` is pure embeddings; `deep`/`deep-lite` synthesize richer output.
+    _VALID_TYPES = {
+        "auto", "neural", "fast",
+        "deep", "deep-lite", "deep-reasoning", "instant",
+    }
+
+    def __init__(
+        self,
+        api_key: str,
+        search_type: str = "auto",
+        category: str | None = None,
+        highlight_chars: int = 500,
+        text_chars: int = 2000,
+    ):
+        self.api_key = api_key
+        self.search_type = search_type if search_type in self._VALID_TYPES else "auto"
+        self.category = category
+        self.highlight_chars = highlight_chars
+        self.text_chars = text_chars
+        self.endpoint = "https://api.exa.ai/search"
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = 5,
+        allowed_domains: list[str] | None = None,
+        blocked_domains: list[str] | None = None,
+    ) -> list[SearchHit]:
+        payload: dict[str, Any] = {
+            "query": query,
+            "type": self.search_type,
+            "numResults": max_results,
+            # Request highlights + compact text together — Exa allows both
+            # in one call so we can populate snippet and full content fields.
+            "contents": {
+                "highlights": {"maxCharacters": self.highlight_chars},
+                "text": {
+                    "maxCharacters": self.text_chars,
+                    "verbosity": "compact",
+                },
+            },
+        }
+        if self.category:
+            payload["category"] = self.category
+        if allowed_domains:
+            payload["includeDomains"] = allowed_domains
+        if blocked_domains:
+            payload["excludeDomains"] = blocked_domains
+
+        headers = {
+            "x-api-key": self.api_key,
+            "Content-Type": "application/json",
+            # Integration attribution header — identifies traffic from this client.
+            "x-exa-integration": "claw-agent",
+        }
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(self.endpoint, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        hits = []
+        for r in data.get("results", []):
+            hits.append(self._parse_result(r))
+        return hits
+
+    @staticmethod
+    def _parse_result(r: dict[str, Any]) -> SearchHit:
+        """Parse a single Exa result with graceful content fallbacks.
+
+        Exa may return any combination of `highlights`, `text`, `summary`.
+        We cascade: highlights → summary → first chars of text for snippet,
+        and prefer full text for the content field. This matches how the
+        rest of this file handles partial-content responses.
+        """
+        highlights = r.get("highlights") or []
+        summary = r.get("summary") or ""
+        text = r.get("text") or ""
+
+        if highlights:
+            snippet = " … ".join(h for h in highlights if h)[:1000]
+        elif summary:
+            snippet = summary[:1000]
+        elif text:
+            snippet = text[:500]
+        else:
+            snippet = ""
+
+        content = text or summary or " ".join(highlights)
+
+        return SearchHit(
+            title=r.get("title") or "",
+            url=r.get("url") or "",
+            snippet=snippet,
+            content=content,
+            score=float(r.get("score") or 0.0),
+        )
 
 
 # ────────────────────────────────────────────────────────────────
@@ -424,8 +543,12 @@ def auto_detect_backend() -> SearchBackend:
     """Auto-detect the best available search backend from env vars.
     从环境变量自动检测最佳搜索后端。
 
-    Priority: Tavily > Brave > SerpAPI > DuckDuckGo (free fallback)
+    Priority: Exa > Tavily > Brave > SerpAPI > DuckDuckGo (free fallback)
     """
+    if key := os.environ.get("EXA_API_KEY"):
+        logger.info("WebSearch: using Exa backend (neural search)")
+        return ExaBackend(api_key=key)
+
     if key := os.environ.get("TAVILY_API_KEY"):
         logger.info("WebSearch: using Tavily backend (AI-optimized)")
         return TavilyBackend(api_key=key)
@@ -483,7 +606,8 @@ class WebSearchTool(Tool):
     本实现使用标准搜索 API，兼容任何 LLM Provider。
 
     Backend auto-detection (via env vars):
-      TAVILY_API_KEY  → Tavily (AI-optimized, recommended)
+      EXA_API_KEY     → Exa (AI-native neural search)
+      TAVILY_API_KEY  → Tavily (AI-optimized)
       BRAVE_API_KEY   → Brave Search
       SERPAPI_API_KEY  → SerpAPI (Google results)
       (none)          → DuckDuckGo (free fallback)
